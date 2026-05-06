@@ -502,6 +502,9 @@ def is_in_reward_unlock(image):
     # Generic "YOU GOT / Unlocked" reward page shown after trophy-road rewards.
     # It is intentionally guarded by main.py so this broad color detector is
     # only actionable inside the post-trophy reward chain.
+    if is_in_skin_reward_unlock(image):
+        return True
+
     full = crop_scaled_region(image, [0, 0, 1920, 1080])
     if full.size == 0:
         return False
@@ -530,6 +533,50 @@ def is_in_reward_unlock(image):
             and bottom_black > 0.03
             and card_dark > 0.10
             and card_light > 0.08
+    )
+
+
+def get_skin_reward_continue_button_center(image):
+    button_region = [885, 850, 420, 150]
+    crop = crop_scaled_region(image, button_region)
+    if crop.size == 0:
+        return None
+
+    blue_ratio = mask_ratio(crop, (100, 90, 120), (125, 255, 255))
+    white_ratio = mask_ratio(crop, (0, 0, 170), (179, 90, 255))
+    dark_ratio = mask_ratio(crop, (0, 0, 0), (179, 255, 80))
+    if blue_ratio < 0.28 or white_ratio < 0.025 or dark_ratio < 0.08:
+        return None
+
+    current_height, current_width = image.shape[:2]
+    width_ratio = current_width / orig_screen_width
+    height_ratio = current_height / orig_screen_height
+    x, y, w, h = button_region
+    return int((x + w / 2) * width_ratio), int((y + h / 2) * height_ratio)
+
+
+def is_in_skin_reward_unlock(image):
+    continue_center = get_skin_reward_continue_button_center(image)
+    if continue_center is None:
+        return False
+
+    background = crop_scaled_region(image, [0, 0, 1920, 1080])
+    header = crop_scaled_region(image, [900, 0, 850, 110])
+    title = crop_scaled_region(image, [860, 150, 900, 360])
+    if background.size == 0 or header.size == 0 or title.size == 0:
+        return False
+
+    pink_ratio = mask_ratio(background, (138, 55, 90), (176, 255, 255))
+    green_ratio = mask_ratio(title, (45, 90, 110), (82, 255, 255))
+    white_ratio = mask_ratio(title, (0, 0, 170), (179, 95, 255))
+    header_white = mask_ratio(header, (0, 0, 175), (179, 90, 255))
+    header_dark = mask_ratio(header, (0, 0, 0), (179, 255, 75))
+    return (
+            pink_ratio > 0.28
+            and green_ratio > 0.06
+            and white_ratio > 0.05
+            and header_white > 0.045
+            and header_dark > 0.03
     )
 
 

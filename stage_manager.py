@@ -14,6 +14,7 @@ from state_finder import (
     get_prestige_next_button_center,
     get_team_invite_reject_button_center,
     get_star_drop_type,
+    get_skin_reward_continue_button_center,
 )
 from trophy_observer import TrophyObserver
 from utils import find_template_center, load_toml_as_dict, async_notify_user, \
@@ -86,7 +87,7 @@ class StageManager:
             'star_drop': self.handle_star_drop,
             'prestige_reward': self.handle_prestige_reward,
             'trophy_reward': lambda: self.window_controller.press_key("Q"),
-            'reward_unlock': lambda: self.window_controller.press_key("Q"),
+            'reward_unlock': self.handle_reward_unlock,
         }
 
     def send_webhook_notification(self, event_type, screenshot=None, details=None):
@@ -518,6 +519,18 @@ class StageManager:
             for _ in range(5):
                 self.window_controller.click(x, y, delay=0.04)
                 time.sleep(0.08)
+
+    def handle_reward_unlock(self):
+        screenshot = self.window_controller.screenshot()
+        screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
+        continue_center = get_skin_reward_continue_button_center(screenshot_bgr)
+        self.window_controller.keys_up(list("wasd"))
+        if continue_center is not None:
+            print("Skin reward unlock detected; clicking CONTINUE.")
+            self.window_controller.click(*continue_center, delay=0.08)
+            return
+        print("Reward unlock detected; pressing continue.")
+        self.window_controller.press_key("Q")
 
     def handle_prestige_reward(self):
         screenshot = self.window_controller.screenshot()
