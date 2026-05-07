@@ -117,7 +117,6 @@ def get_in_game_state(image):
     if game_result: return f"end_{game_result}"
     if is_in_shop(image): return "shop"
     if is_in_offer_popup(image): return "popup"
-    if is_in_team_invite_popup(image): return "popup"
     if is_in_match_making(image): return "match_making"
     if is_in_lobby(image): return "lobby"
     if is_in_brawler_selection(image):
@@ -246,70 +245,6 @@ def is_in_match_making(image) -> bool:
         and is_matchmaking_tip_visible(image)
         and is_matchmaking_background_visible(image)
     )
-
-
-def get_team_invite_reject_button_center(image, image_is_rgb=False):
-    current_height, current_width = image.shape[:2]
-    width_ratio = current_width / orig_screen_width
-    height_ratio = current_height / orig_screen_height
-
-    region = [480, 185, 960, 700]
-    x = int(region[0] * width_ratio)
-    y = int(region[1] * height_ratio)
-    w = int(region[2] * width_ratio)
-    h = int(region[3] * height_ratio)
-    crop = image[y:y + h, x:x + w]
-    if crop.size == 0:
-        return None
-
-    color_conversion = cv2.COLOR_RGB2HSV if image_is_rgb else cv2.COLOR_BGR2HSV
-    hsv = cv2.cvtColor(crop, color_conversion)
-    blue_mask = cv2.inRange(
-        hsv,
-        np.array((90, 80, 80), dtype=np.uint8),
-        np.array((120, 255, 255), dtype=np.uint8),
-    )
-    blue_ratio = cv2.countNonZero(blue_mask) / max(1, crop.shape[0] * crop.shape[1])
-    if blue_ratio < 0.30:
-        return None
-
-    lower_half = hsv[int(h * 0.45):h, :]
-    red_mask_low = cv2.inRange(
-        lower_half,
-        np.array((0, 90, 90), dtype=np.uint8),
-        np.array((10, 255, 255), dtype=np.uint8),
-    )
-    red_mask_high = cv2.inRange(
-        lower_half,
-        np.array((170, 90, 90), dtype=np.uint8),
-        np.array((179, 255, 255), dtype=np.uint8),
-    )
-    red_mask = cv2.bitwise_or(red_mask_low, red_mask_high)
-    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-
-    min_area = max(600, crop.shape[0] * crop.shape[1] * 0.015)
-    candidates = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        bx, by, bw, bh = cv2.boundingRect(contour)
-        if area < min_area or bw < w * 0.18 or bh < h * 0.08:
-            continue
-        absolute_by = by + int(h * 0.45)
-        if bx > w * 0.55:
-            continue
-        candidates.append((area, bx, absolute_by, bw, bh))
-
-    if not candidates:
-        return None
-
-    _, bx, by, bw, bh = max(candidates, key=lambda item: item[0])
-    return int(x + bx + bw / 2), int(y + by + bh / 2)
-
-
-def is_in_team_invite_popup(image) -> bool:
-    return get_team_invite_reject_button_center(image) is not None and is_lobby_hud_visible(image, required_anchors=2)
 
 
 def is_in_lobby(image) -> bool:

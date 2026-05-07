@@ -7,7 +7,6 @@ import numpy as np
 from stage_manager import StageManager
 from state_finder import (
     get_prestige_next_button_center,
-    get_team_invite_reject_button_center,
     is_in_prestige_reward,
 )
 
@@ -33,6 +32,7 @@ class DummyLobbyAutomation:
 class DummyWindowController:
     width_ratio = 1.0
     height_ratio = 1.0
+    scale_factor = 1.0
 
     def __init__(self):
         self.clicks = []
@@ -211,15 +211,14 @@ class PrestigeRewardTests(unittest.TestCase):
         self.assertIn("Q", manager.window_controller.presses)
         self.assertIn((1280, 892), manager.window_controller.clicks)
 
-    def test_team_invite_reject_releases_movement_and_uses_adb_fallback(self):
+    def test_team_invite_is_not_rejected_by_popup_handler(self):
         manager = object.__new__(StageManager)
         manager.window_controller = DummyWindowController()
-        manager.last_team_invite_reject_time = 0.0
+        manager.close_popup_icon = None
         screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.draw_team_invite_screen(screenshot_bgr)
         screenshot_rgb = cv2.cvtColor(screenshot_bgr, cv2.COLOR_BGR2RGB)
         manager.window_controller.screenshot = lambda: screenshot_rgb
-        center = get_team_invite_reject_button_center(screenshot_rgb, image_is_rgb=True)
         adb_taps = []
 
         def adb_fallback(x, y, screenshot_shape=None):
@@ -230,9 +229,9 @@ class PrestigeRewardTests(unittest.TestCase):
 
         manager.close_pop_up()
 
-        self.assertIn(list("wasd"), manager.window_controller.keys_released)
-        self.assertIn(center, manager.window_controller.clicks)
-        self.assertEqual(adb_taps, [(center[0], center[1], screenshot_rgb.shape)])
+        self.assertEqual(manager.window_controller.keys_released, [])
+        self.assertEqual(manager.window_controller.clicks, [])
+        self.assertEqual(adb_taps, [])
 
 
 if __name__ == "__main__":

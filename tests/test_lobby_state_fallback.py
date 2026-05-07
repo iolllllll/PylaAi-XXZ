@@ -7,7 +7,6 @@ from state_finder import (
     get_in_game_state,
     get_matchmaking_exit_button_center,
     get_starr_nova_got_it_button_center,
-    get_team_invite_reject_button_center,
     is_in_match_making,
     is_lobby_currency_bar_visible,
     is_lobby_hud_visible,
@@ -132,7 +131,7 @@ class LobbyStateFallbackTests(unittest.TestCase):
         self.assertFalse(is_lobby_hud_visible(image))
         self.assertEqual(get_in_game_state(image), "match")
 
-    def test_team_invite_popup_is_detected_as_popup(self):
+    def test_team_invite_popup_is_ignored_by_state_detection(self):
         image = np.zeros((1080, 1920, 3), dtype=np.uint8)
         blue_bgr = cv2.cvtColor(
             np.full((1, 1, 3), (105, 220, 230), dtype=np.uint8),
@@ -151,18 +150,7 @@ class LobbyStateFallbackTests(unittest.TestCase):
         image[620:730, 615:950] = red_bgr
         image[620:730, 970:1305] = green_bgr
 
-        center = get_team_invite_reject_button_center(image)
-
-        self.assertIsNotNone(center)
-        self.assertEqual(get_in_game_state(image), "popup")
-
-    def test_team_invite_detector_accepts_live_probe_shape(self):
-        image = cv2.imread("debug_frames/lobby_probe/127.0.0.1_5555.png")
-        if image is None:
-            self.skipTest("live lobby probe frame is not available")
-
-        self.assertIsNotNone(get_team_invite_reject_button_center(image))
-        self.assertNotEqual(get_in_game_state(image), "lobby")
+        self.assertNotEqual(get_in_game_state(image), "popup")
 
     def test_starr_nova_info_screen_detects_got_it_button(self):
         image = np.zeros((1080, 1920, 3), dtype=np.uint8)

@@ -12,7 +12,6 @@ from state_finder import (
     find_game_result,
     is_in_prestige_reward,
     get_prestige_next_button_center,
-    get_team_invite_reject_button_center,
     get_star_drop_type,
     get_skin_reward_continue_button_center,
 )
@@ -63,7 +62,6 @@ class StageManager:
         self.last_recorded_result_time = 0.0
         self.last_recorded_result = None
         self.active_end_result = None
-        self.last_team_invite_reject_time = 0.0
         self.stop_after_post_match_rewards = False
         self.completion_notification_sent = False
         time_thresholds = load_toml_as_dict("./cfg/time_tresholds.toml")
@@ -663,17 +661,6 @@ class StageManager:
 
     def close_pop_up(self):
         screenshot = self.window_controller.screenshot()
-        team_invite_reject = get_team_invite_reject_button_center(screenshot, image_is_rgb=True)
-        if team_invite_reject:
-            now = time.time()
-            if now - self.last_team_invite_reject_time < 0.6:
-                return
-            self.last_team_invite_reject_time = now
-            print("Team invite popup detected; rejecting invite.")
-            self.window_controller.keys_up(list("wasd"))
-            self.window_controller.click(*team_invite_reject, delay=0.08)
-            self.tap_with_adb_fallback(*team_invite_reject, screenshot_shape=screenshot.shape)
-            return
         if self.close_popup_icon is None:
             self.close_popup_icon = load_image("images/states/close_popup.png", self.window_controller.scale_factor)
         popup_location = find_template_center(screenshot, self.close_popup_icon)
