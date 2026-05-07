@@ -126,6 +126,9 @@ def get_in_game_state(image):
     if is_in_brawl_pass(image) or is_in_star_road(image):
         return "shop"
 
+    if is_in_daily_wins_hold_drop(image) or is_in_daily_wins_drop(image):
+        return "daily_star_drop"
+
     if is_in_star_drop(image):
         return "star_drop"
 
@@ -725,6 +728,10 @@ def is_in_star_drop(image):
 
 
 def get_star_drop_type(image):
+    if is_in_daily_wins_hold_drop(image):
+        return "daily_hold"
+    if is_in_daily_wins_drop(image):
+        return "standard"
     for image_filename in images_with_star_drop:
         if is_template_in_region(
                 image,
@@ -810,7 +817,79 @@ def is_in_daily_wins_drop(image):
         np.array((179, 80, 255), dtype=np.uint8),
     )
     white_pixels = cv2.countNonZero(white_mask)
-    return white_pixels > int(1800 * width_ratio * height_ratio)
+    dark_title_ratio = mask_ratio(title, (0, 0, 0), (179, 255, 85))
+    if white_pixels <= int(1800 * width_ratio * height_ratio) or dark_title_ratio < 0.08:
+        return False
+
+    rx, ry, rw, rh = scaled_region([690, 20, 540, 170])
+    rarity = image[ry:ry + rh, rx:rx + rw]
+    if rarity.size == 0:
+        return False
+    rarity_green = mask_ratio(rarity, (42, 90, 100), (95, 255, 255))
+    rarity_dark = mask_ratio(rarity, (0, 0, 0), (179, 255, 85))
+    if rarity_green <= 0.055 or rarity_dark <= 0.035:
+        return False
+
+    sx, sy, sw, sh = scaled_region([620, 170, 680, 720])
+    star = image[sy:sy + sh, sx:sx + sw]
+    if star.size == 0:
+        return False
+    star_yellow = mask_ratio(star, (16, 70, 120), (42, 255, 255))
+    star_dark = mask_ratio(star, (0, 0, 0), (179, 255, 85))
+    star_white = mask_ratio(star, (0, 0, 180), (179, 70, 255))
+    return star_yellow > 0.075 and star_dark > 0.025 and star_white > 0.010
+
+
+def is_in_daily_wins_hold_drop(image):
+    current_height, current_width = image.shape[:2]
+    width_ratio, height_ratio = current_width / orig_screen_width, current_height / orig_screen_height
+
+    def scaled_region(region):
+        x, y, w, h = region
+        return (
+            int(x * width_ratio),
+            int(y * height_ratio),
+            int(w * width_ratio),
+            int(h * height_ratio),
+        )
+
+    background = crop_scaled_region(image, [0, 0, 1920, 1080])
+    if background.size == 0:
+        return False
+    purple_ratio = (
+        mask_ratio(background, (124, 65, 90), (168, 255, 255))
+        + mask_ratio(background, (0, 65, 90), (8, 255, 255))
+    )
+    if purple_ratio < 0.34:
+        return False
+
+    tx, ty, tw, th = scaled_region([0, 0, 540, 170])
+    title = image[ty:ty + th, tx:tx + tw]
+    if title.size == 0:
+        return False
+    title_white = mask_ratio(title, (0, 0, 160), (179, 90, 255))
+    title_dark = mask_ratio(title, (0, 0, 0), (179, 255, 85))
+    if title_white < 0.11 or title_dark < 0.08:
+        return False
+
+    sx, sy, sw, sh = scaled_region([520, 160, 720, 520])
+    star = image[sy:sy + sh, sx:sx + sw]
+    if star.size == 0:
+        return False
+    star_cyan = mask_ratio(star, (82, 45, 130), (108, 255, 255))
+    star_pink = mask_ratio(star, (138, 45, 130), (174, 255, 255))
+    star_white = mask_ratio(star, (0, 0, 178), (179, 85, 255))
+    star_dark = mask_ratio(star, (0, 0, 0), (179, 255, 85))
+    if star_cyan < 0.055 or star_pink < 0.035 or star_white < 0.065 or star_dark < 0.035:
+        return False
+
+    bx, by, bw, bh = scaled_region([680, 760, 560, 130])
+    bottom = image[by:by + bh, bx:bx + bw]
+    if bottom.size == 0:
+        return False
+    bottom_white = mask_ratio(bottom, (0, 0, 170), (179, 85, 255))
+    bottom_dark = mask_ratio(bottom, (0, 0, 0), (179, 255, 85))
+    return bottom_white > 0.075 and bottom_dark > 0.05
 
 def get_state(screenshot):
     global _last_printed_state

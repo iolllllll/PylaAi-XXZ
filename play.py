@@ -471,6 +471,7 @@ class Play(Movement):
             "enemy": time.time(),
         }
         self.time_since_last_proceeding = time.time()
+        self.time_since_last_no_detection_q = time.time()
 
         self.last_movement = None
         self.last_movement_time = time.time()
@@ -489,6 +490,7 @@ class Play(Movement):
         self.is_showdown = bot_config["gamemode"] == "showdown"
         self.minimum_movement_delay = bot_config["minimum_movement_delay"]
         self.no_detection_proceed_delay = time_config["no_detection_proceed"]
+        self.no_detection_q_press_interval = float(time_config.get("no_detection_q_press_interval", 15.0))
         self.gadget_pixels_minimum = bot_config["gadget_pixels_minimum"]
         self.hypercharge_pixels_minimum = bot_config["hypercharge_pixels_minimum"]
         self.super_pixels_minimum = bot_config["super_pixels_minimum"]
@@ -2049,9 +2051,10 @@ class Play(Movement):
                 if current_state != "match":
                     self.time_since_last_proceeding = current_time
                 else:
-                    # Blind proceed taps can open lobby/event panels when state
-                    # detection is between screens. Rewards and post-match
-                    # screens are handled by explicit state/template handlers.
+                    if current_time - self.time_since_last_no_detection_q >= self.no_detection_q_press_interval:
+                        print("No detection fallback: pressing Q.")
+                        self.window_controller.press_key("Q")
+                        self.time_since_last_no_detection_q = current_time
                     self.time_since_last_proceeding = time.time()
             return
         self.time_since_last_proceeding = time.time()

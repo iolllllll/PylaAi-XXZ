@@ -61,7 +61,7 @@ def parse_max_ips(value):
 
 OUT_OF_MATCH_REWARD_STATES = {"prestige_reward", "trophy_reward"}
 TROPHY_REWARD_FOLLOWUP_STATES = {"reward_unlock"}
-LOBBY_ONLY_REWARD_STATES = {"star_drop"}
+STAR_DROP_STATES = {"star_drop", "daily_star_drop"}
 MATCH_RESULT_STATES = {
     "end_victory",
     "end_defeat",
@@ -80,8 +80,15 @@ def normalize_detected_state(
         match_launch_pending=False,
         match_result_seen=False,
 ):
-    if detected_state in LOBBY_ONLY_REWARD_STATES:
-        if previous_state == "lobby" and not match_launch_pending:
+    if detected_state in STAR_DROP_STATES:
+        if detected_state == "daily_star_drop" and not match_launch_pending:
+            return detected_state
+        if (
+                previous_state in MATCH_RESULT_STATES
+                or previous_state in OUT_OF_MATCH_REWARD_STATES
+                or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
+                or previous_state in STAR_DROP_STATES
+        ) and not match_launch_pending:
             return detected_state
         return previous_state or "match"
     if detected_state in TROPHY_REWARD_FOLLOWUP_STATES:
@@ -578,9 +585,9 @@ def pyla_main(data):
                 if now - self.last_ignored_prestige_state_time >= 5.0:
                     print(f"Ignoring {detected_state} detection until a match result or lobby is confirmed.")
                     self.last_ignored_prestige_state_time = now
-            if detected_state in LOBBY_ONLY_REWARD_STATES and state != detected_state:
+            if detected_state in STAR_DROP_STATES and state != detected_state:
                 if now - self.last_ignored_star_drop_state_time >= 5.0:
-                    print("Ignoring star_drop detection because the previous stable state was not lobby.")
+                    print("Ignoring star_drop detection because no post-match reward chain is active.")
                     self.last_ignored_star_drop_state_time = now
 
             if state == "match":
@@ -595,7 +602,7 @@ def pyla_main(data):
                 self.reward_chain_seen = False
             elif (
                     state in OUT_OF_MATCH_REWARD_STATES
-                    or state in LOBBY_ONLY_REWARD_STATES
+                    or state in STAR_DROP_STATES
                     or state in TROPHY_REWARD_FOLLOWUP_STATES
             ):
                 self.reward_chain_seen = True

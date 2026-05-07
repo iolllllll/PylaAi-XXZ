@@ -96,8 +96,8 @@ class StateTransitionGuardTests(unittest.TestCase):
             "lobby",
         )
 
-    def test_star_drop_is_blocked_unless_previous_state_was_lobby(self):
-        for previous_state in ("match", "match_making", "shop", None):
+    def test_star_drop_is_blocked_unless_previous_state_was_post_match_reward_chain(self):
+        for previous_state in ("match", "match_making", "shop", "lobby", None):
             with self.subTest(previous_state=previous_state):
                 self.assertNotEqual(
                     normalize_detected_state(
@@ -107,23 +107,42 @@ class StateTransitionGuardTests(unittest.TestCase):
                     "star_drop",
                 )
 
-    def test_star_drop_is_allowed_only_from_lobby(self):
-        self.assertEqual(
-            normalize_detected_state(
-                "star_drop",
-                previous_state="lobby",
-            ),
-            "star_drop",
-        )
+    def test_star_drop_is_allowed_only_from_post_match_reward_chain(self):
+        for previous_state in ("end_1st", "end_2nd", "end_3rd", "end_4th", "trophy_reward", "reward_unlock", "star_drop"):
+            with self.subTest(previous_state=previous_state):
+                self.assertEqual(
+                    normalize_detected_state(
+                        "star_drop",
+                        previous_state=previous_state,
+                    ),
+                    "star_drop",
+                )
 
     def test_star_drop_is_blocked_after_lobby_start_pressed(self):
         self.assertEqual(
             normalize_detected_state(
                 "star_drop",
-                previous_state="lobby",
+                previous_state="end_1st",
                 match_launch_pending=True,
             ),
-            "lobby",
+            "end_1st",
+        )
+
+    def test_daily_star_drop_can_open_from_match_but_not_after_start_pressed(self):
+        self.assertEqual(
+            normalize_detected_state(
+                "daily_star_drop",
+                previous_state="match",
+            ),
+            "daily_star_drop",
+        )
+        self.assertEqual(
+            normalize_detected_state(
+                "daily_star_drop",
+                previous_state="match",
+                match_launch_pending=True,
+            ),
+            "match",
         )
 
     def test_lobby_after_match_depends_on_stable_lobby_state_not_vision_quietness(self):

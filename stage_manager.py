@@ -85,6 +85,7 @@ class StageManager:
             'end_4th': self.end_game,
             'lobby': self.start_game,
             'star_drop': self.handle_star_drop,
+            'daily_star_drop': self.handle_star_drop,
             'prestige_reward': self.handle_prestige_reward,
             'trophy_reward': lambda: self.window_controller.press_key("Q"),
             'reward_unlock': self.handle_reward_unlock,
@@ -511,7 +512,7 @@ class StageManager:
         height_ratio = current_height / 1080
         x = int(965 * width_ratio)
         y = int(525 * height_ratio)
-        if drop_type in ("angelic", "demonic"):
+        if drop_type in ("angelic", "demonic", "daily_hold"):
             for _ in range(3):
                 self.window_controller.click(x, y, delay=0.45)
                 time.sleep(0.2)
