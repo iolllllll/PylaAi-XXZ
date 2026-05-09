@@ -8,6 +8,9 @@ class PushAll1kSelectionTest(unittest.TestCase):
     def test_start_bot_closes_selector_before_heavy_startup(self):
         obj = object.__new__(SelectBrawler)
         obj.brawlers_data = [{"brawler": "shelly"}]
+        obj._closing = False
+        obj._filter_after_id = None
+        obj._image_render_after_id = None
         calls = []
 
         def close_app():
@@ -16,13 +19,19 @@ class PushAll1kSelectionTest(unittest.TestCase):
         def data_setter(data):
             calls.append(("start", data))
 
-        obj.close_app = close_app
+        class DummyApp:
+            def quit(self):
+                calls.append("quit")
+
+        obj._hide_window = close_app
+        obj.app = DummyApp()
         obj.data_setter = data_setter
 
         SelectBrawler.start_bot(obj)
 
         self.assertEqual(calls[0], "close")
         self.assertEqual(calls[1], ("start", [{"brawler": "shelly"}]))
+        self.assertEqual(calls[2], "quit")
 
     def test_ocr_match_accepts_close_brawler_name(self):
         brawler = SelectBrawler._match_brawler_from_ocr_texts(["M1NA"], ["meg", "mina", "ziggy"])

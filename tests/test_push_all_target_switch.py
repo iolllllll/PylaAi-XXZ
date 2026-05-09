@@ -79,6 +79,7 @@ class PushAllTargetSwitchTest(unittest.TestCase):
         manager.Lobby_automation = DummyLobbyAutomation()
         manager.send_webhook_notification = lambda *args, **kwargs: None
         manager.push_all_needs_selection = False
+        manager.stop_after_post_match_rewards = False
         return manager
 
     @patch.object(StageManager, "refresh_push_all_trophies_from_api", return_value=False)
@@ -154,6 +155,23 @@ class PushAllTargetSwitchTest(unittest.TestCase):
         self.assertEqual(manager.Lobby_automation.lowest_calls, 1)
         self.assertEqual([row["brawler"] for row in manager.brawlers_pick_data], ["lowest", "almost_done"])
 
+    @patch.object(StageManager, "refresh_push_all_trophies_from_api", return_value=False)
+    @patch("stage_manager.save_brawler_data")
+    @patch("stage_manager.time.sleep", return_value=None)
+    @patch("stage_manager.get_state", return_value="lobby")
+    def test_push_all_switches_when_saved_row_reached_target_even_if_observer_is_stale(self, *_):
+        for target in (250, 500, 750, 1000):
+            with self.subTest(target=target):
+                manager = self.make_manager(target)
+                manager.brawlers_pick_data[0]["trophies"] = target
+                manager.Trophy_observer = DummyTrophyObserver(target - 1)
+
+                manager.start_game()
+
+                self.assertEqual(manager.brawlers_pick_data[0]["brawler"], "second")
+                self.assertEqual(manager.Trophy_observer.current_trophies, 0)
+                self.assertEqual(manager.Lobby_automation.lowest_calls, 1)
+
     @patch("stage_manager.save_brawler_data")
     @patch("stage_manager.fetch_brawl_stars_player")
     @patch("stage_manager.load_brawl_stars_api_config")
@@ -167,26 +185,29 @@ class PushAllTargetSwitchTest(unittest.TestCase):
             mock_fetch_player,
             _mock_save,
     ):
-        manager = self.make_manager(1000)
-        manager.brawlers_pick_data[0]["trophies"] = 560
-        manager.Trophy_observer = DummyTrophyObserver(560)
-        mock_api_config.return_value = {
-            "api_token": "token",
-            "player_tag": "#TAG",
-            "timeout_seconds": 15,
-        }
-        mock_fetch_player.return_value = {
-            "brawlers": [
-                {"name": "FIRST", "trophies": 1000},
-                {"name": "SECOND", "trophies": 25},
-            ]
-        }
+        for target in (500, 750, 1000):
+            with self.subTest(target=target):
+                manager = self.make_manager(target)
+                manager.brawlers_pick_data[0]["trophies"] = target - 5
+                manager.Trophy_observer = DummyTrophyObserver(target - 5)
+                mock_api_config.return_value = {
+                    "api_token": "token",
+                    "player_tag": "#TAG",
+                    "timeout_seconds": 15,
+                }
+                mock_fetch_player.return_value = {
+                    "brawlers": [
+                        {"name": "FIRST", "trophies": target},
+                        {"name": "SECOND", "trophies": 25},
+                    ]
+                }
 
-        manager.start_game()
+                manager.start_game()
 
-        self.assertEqual(manager.brawlers_pick_data[0]["brawler"], "second")
-        self.assertEqual(manager.Trophy_observer.current_trophies, 25)
-        self.assertEqual(manager.Lobby_automation.lowest_calls, 1)
+                self.assertEqual(manager.brawlers_pick_data[0]["brawler"], "second")
+                self.assertEqual(manager.Trophy_observer.current_trophies, 25)
+                self.assertEqual(manager.Lobby_automation.lowest_calls, 1)
+                mock_fetch_player.reset_mock()
 
     @patch("stage_manager.save_brawler_data")
     @patch("stage_manager.fetch_brawl_stars_player")

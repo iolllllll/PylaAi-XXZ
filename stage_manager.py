@@ -230,7 +230,7 @@ class StageManager:
             normalize_brawler_name(brawler.get("name", "")): int(brawler.get("trophies", 0))
             for brawler in player_data.get("brawlers", [])
         }
-        target = self._number_or_default(self.brawlers_pick_data[0].get("push_until", 1000), 1000)
+        default_target = self._number_or_default(self.brawlers_pick_data[0].get("push_until", 1000), 1000)
         changed = False
         refreshed_rows = []
         for row in self.brawlers_pick_data:
@@ -247,7 +247,8 @@ class StageManager:
                 if refreshed_row.get("trophies") != api_trophies:
                     refreshed_row["trophies"] = api_trophies
                     changed = True
-            if self._number_or_default(refreshed_row.get("trophies", 0), 0) < target:
+            row_target = self._number_or_default(refreshed_row.get("push_until", default_target), default_target)
+            if self._number_or_default(refreshed_row.get("trophies", 0), 0) < row_target:
                 refreshed_rows.append(refreshed_row)
 
         current_row = next(
@@ -347,6 +348,7 @@ class StageManager:
         if type_of_push not in values:
             type_of_push = "trophies"
         value = values[type_of_push]
+        saved_value = self._number_or_default(self.brawlers_pick_data[0].get(type_of_push, 0), 0)
         if value == "" and type_of_push == "wins":
             value = 0
         push_current_brawler_till = self.brawlers_pick_data[0]['push_until']
@@ -354,6 +356,12 @@ class StageManager:
             push_current_brawler_till = 300
         if push_current_brawler_till == "" and type_of_push == "trophies":
             push_current_brawler_till = 1000
+        push_current_brawler_till = self._number_or_default(
+            push_current_brawler_till,
+            1000 if type_of_push == "trophies" else 300,
+        )
+        value = self._number_or_default(value, 0)
+        value = max(value, saved_value)
 
         if value >= push_current_brawler_till:
             if len(self.brawlers_pick_data) <= 1:
@@ -624,6 +632,11 @@ class StageManager:
                     push_current_brawler_till = 300
                 if push_current_brawler_till == "" and type_to_push == "trophies":
                     push_current_brawler_till = 1000
+                push_current_brawler_till = self._number_or_default(
+                    push_current_brawler_till,
+                    1000 if type_to_push == "trophies" else 300,
+                )
+                value = self._number_or_default(value, 0)
 
                 if value >= push_current_brawler_till:
                     if len(self.brawlers_pick_data) <= 1:
@@ -642,6 +655,13 @@ class StageManager:
                                 }),
                             )
                             self.completion_notification_sent = True
+                    else:
+                        print(
+                            "Brawler reached required trophies/wins. "
+                            "Will switch brawler as soon as lobby is reached.",
+                            value,
+                            push_current_brawler_till,
+                        )
             
             # Keep pressing the dismiss key on every iteration until the
             # end-of-match screens give way. One press is rarely enough in
