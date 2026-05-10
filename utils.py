@@ -564,8 +564,11 @@ def check_version():
 
 async def async_notify_user(message_type: str | None = None, screenshot: Image = None, details=None) -> bool:
     from discord_notifier import async_notify_user as send_discord_notification
+    from telegram_notifier import async_notify_user as send_telegram_notification
 
-    return await send_discord_notification(message_type, screenshot=screenshot, details=details)
+    discord_sent = await send_discord_notification(message_type, screenshot=screenshot, details=details)
+    telegram_sent = await send_telegram_notification(message_type, screenshot=screenshot, details=details)
+    return bool(discord_sent or telegram_sent)
         
 def get_discord_link():
     if api_base_url == "localhost":

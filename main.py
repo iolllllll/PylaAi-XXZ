@@ -30,6 +30,7 @@ from state_finder import (
     is_starr_nova_hub_screen,
     is_starr_nova_info_screen,
 )
+from telegram_control import TelegramControlServer
 from time_management import TimeManagement
 from utils import (
     api_base_url,
@@ -230,6 +231,13 @@ def pyla_main(data):
             self.control_window.start()
             self.discord_control = DiscordControlServer(self.control_window.state_path)
             self.discord_control.start()
+            self.telegram_control = TelegramControlServer(
+                self.control_window.state_path,
+                screenshot_provider=self.window_controller.screenshot,
+                restart_game_callback=self.restart_brawl_stars,
+                status_provider=self.telegram_status,
+            )
+            self.telegram_control.start()
             self.was_paused = False
             self.pause_started_at = None
 
@@ -237,6 +245,18 @@ def pyla_main(data):
             self.Stage_manager.Trophy_observer.win_streak = data[0]['win_streak']
             self.Stage_manager.Trophy_observer.current_trophies = data[0]['trophies']
             self.Stage_manager.Trophy_observer.current_wins = data[0]['wins'] if data[0]['wins'] != "" else 0
+
+        def telegram_status(self):
+            current = self.Stage_manager.brawlers_pick_data[0] if self.Stage_manager.brawlers_pick_data else {}
+            return {
+                "state": self.state or "unknown",
+                "ips": f"{self.ips_ema:.2f}" if self.ips_ema is not None else "",
+                "feed_fps": f"{self.perf_feed_fps:.2f}",
+                "emulator": getattr(self.window_controller, "selected_emulator", ""),
+                "adb_device": getattr(getattr(self.window_controller, "device", None), "serial", ""),
+                "brawler": current.get("brawler", ""),
+                "target": current.get("push_until", ""),
+            }
 
         @staticmethod
         def load_models():
@@ -924,6 +944,7 @@ def pyla_main(data):
                         time.sleep(target_period - work_time)
 
             self.discord_control.close()
+            self.telegram_control.close()
             self.control_window.close()
 
     main = Main()

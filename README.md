@@ -101,6 +101,15 @@ Discord webhook and remote control :
   4. Filling this makes slash commands appear faster because they sync to that server only.
 - Restart PylaAi-XXZ after changing the Discord bot token or remote-control settings.
 
+Telegram notifications and remote control :
+- Open `cfg/telegram_config.toml`.
+- Create a bot with `@BotFather`, then paste the token into `bot_token`.
+- Set `enabled = true`.
+- Open the Telegram bot on your phone and send `/start` or `/help` once. That chat is remembered for notifications.
+- Commands:
+  `/status`, `/pause`, `/resume`, `/screenshot`, `/restart_game`, `/help`.
+- Restart PylaAi-XXZ after changing the Telegram token or remote-control settings.
+
 Performance troubleshooting :
 - Run `python tools/performance_check.py`.
 - If it says `CPUExecutionProvider`, run `setup.exe` again or set `cfg/general_config.toml` `cpu_or_gpu = "directml"`.
