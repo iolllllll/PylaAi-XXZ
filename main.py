@@ -69,6 +69,8 @@ def parse_max_ips(value):
 OUT_OF_MATCH_REWARD_STATES = {"prestige_reward", "trophy_reward"}
 TROPHY_REWARD_FOLLOWUP_STATES = {"reward_unlock"}
 STAR_DROP_STATES = {"star_drop", "daily_star_drop", "nova_star_drop"}
+SLOW_FEED_FPS_THRESHOLD = 5.0
+SLOW_FEED_PLAY_AVG_LIMIT = 0.35
 MATCH_RESULT_STATES = {
     "end_victory",
     "end_defeat",
@@ -218,7 +220,10 @@ def pyla_main(data):
             self.low_ips_recovery_cooldown = float(time_thresholds.get("low_ips_recovery_cooldown", 20.0))
             self.low_ips_app_restart_after = int(time_thresholds.get("low_ips_app_restart_after", 2))
             self.low_ips_emulator_restart_after = int(time_thresholds.get("low_ips_emulator_restart_after", 4))
-            self.low_ips_feed_restart_seconds = float(time_thresholds.get("low_ips_feed_restart_seconds", 18.0))
+            self.low_ips_feed_restart_seconds = min(
+                float(time_thresholds.get("low_ips_feed_restart_seconds", 8.0)),
+                8.0,
+            )
             self.low_ips_since = None
             self.last_low_ips_recovery = 0.0
             self.low_ips_recovery_attempts = 0
@@ -366,7 +371,11 @@ def pyla_main(data):
                 f"state_avg={self.perf_state_ema or 0:.3f}s",
                 f"play_avg={self.perf_play_ema or 0:.3f}s",
             )
-            if self.state == "match" and self.perf_feed_fps < 3 and (self.perf_play_ema or 0) < 0.25:
+            if (
+                    self.state == "match"
+                    and self.perf_feed_fps < SLOW_FEED_FPS_THRESHOLD
+                    and (self.perf_play_ema or 0) < SLOW_FEED_PLAY_AVG_LIMIT
+            ):
                 print(
                     "Diagnosis: emulator/scrcpy is only delivering a few usable frames. "
                     "This is not an AI/GPU compute limit; check emulator FPS/performance mode and local ADB."
@@ -386,7 +395,10 @@ def pyla_main(data):
                 return False
             if now - self.match_ready_at < self.low_ips_match_grace_seconds:
                 return False
-            if self.perf_feed_fps >= 3 or (self.perf_play_ema or 0) >= 0.35:
+            if (
+                    self.perf_feed_fps >= SLOW_FEED_FPS_THRESHOLD
+                    or (self.perf_play_ema or 0) >= SLOW_FEED_PLAY_AVG_LIMIT
+            ):
                 self.low_feed_since = None
                 return False
             if self.low_feed_since is None:
@@ -628,7 +640,7 @@ def pyla_main(data):
                 match_launch_pending=self.match_launch_pending,
                 match_result_seen=post_match_context_active,
                 trophy_result_recorded=trophy_result_recorded,
-                prestige_reward_allowed=getattr(self.Stage_manager.Trophy_observer, "current_trophies", 0) >= 1000,
+                prestige_reward_allowed=self.Stage_manager.can_current_brawler_have_prestige_reward(),
             )
             if detected_state != "lobby":
                 self.pending_lobby_since = None

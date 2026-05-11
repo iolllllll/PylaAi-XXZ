@@ -170,8 +170,8 @@ class PrestigeRewardTests(unittest.TestCase):
     def test_prestige_reward_does_not_force_switch_when_lobby_trophies_are_not_reset(self):
         manager = object.__new__(StageManager)
         manager.brawlers_pick_data = [
-            {"brawler": "gray", "trophies": 249, "push_until": 250, "wins": 0, "win_streak": 0},
-            {"brawler": "shelly", "trophies": 20, "push_until": 250, "wins": 0, "win_streak": 0},
+            {"brawler": "gray", "trophies": 999, "push_until": 1000, "wins": 0, "win_streak": 0},
+            {"brawler": "shelly", "trophies": 20, "push_until": 1000, "wins": 0, "win_streak": 0},
         ]
         manager.Trophy_observer = DummyTrophyObserver()
         manager.Trophy_observer.current_trophies = 1000
@@ -217,6 +217,7 @@ class PrestigeRewardTests(unittest.TestCase):
     def test_prestige_reward_handler_ignores_under_1000_trophies(self):
         manager = object.__new__(StageManager)
         manager.Trophy_observer = DummyTrophyObserver()
+        manager.brawlers_pick_data = [{"type": "trophies", "push_until": 1000, "trophies": 999}]
         manager.window_controller = DummyWindowController()
         screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.draw_prestige_screen(screenshot_bgr, button_box=(1140, 840, 280, 105))
@@ -226,6 +227,23 @@ class PrestigeRewardTests(unittest.TestCase):
 
         self.assertEqual(manager.window_controller.clicks, [])
         self.assertEqual(manager.window_controller.presses, [])
+
+    def test_prestige_reward_handler_ignores_targets_above_1000(self):
+        for target in (1250, 1500):
+            with self.subTest(target=target):
+                manager = object.__new__(StageManager)
+                manager.Trophy_observer = DummyTrophyObserver()
+                manager.Trophy_observer.current_trophies = target
+                manager.brawlers_pick_data = [{"type": "trophies", "push_until": target, "trophies": target}]
+                manager.window_controller = DummyWindowController()
+                screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
+                self.draw_prestige_screen(screenshot_bgr, button_box=(1140, 840, 280, 105))
+                manager.window_controller.screenshot = lambda: cv2.cvtColor(screenshot_bgr, cv2.COLOR_BGR2RGB)
+
+                manager.handle_prestige_reward()
+
+                self.assertEqual(manager.window_controller.clicks, [])
+                self.assertEqual(manager.window_controller.presses, [])
 
     def test_team_invite_reject_releases_movement_and_uses_adb_fallback(self):
         manager = object.__new__(StageManager)

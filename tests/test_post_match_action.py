@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from stage_manager import StageManager
 
 
@@ -71,6 +73,30 @@ class PostMatchActionTests(unittest.TestCase):
 
     def test_play_again_clicks_result_button(self):
         manager = self.make_manager("play_again")
+        manager.window_controller.screenshot = lambda: np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+        with patch("stage_manager.extract_text_strings", return_value=[]):
+            manager.dismiss_end_screen(use_play_again=True)
+
+        self.assertEqual(manager.window_controller.presses, [])
+        self.assertEqual(manager.window_controller.clicks[0][0:2], (1215, 935))
+        self.assertIn(list("wasd"), manager.window_controller.keys_released)
+
+    @patch("stage_manager.extract_text_strings", return_value=["exit"])
+    def test_play_again_missing_clicks_exit_button(self, *_):
+        manager = self.make_manager("play_again")
+        manager.window_controller.screenshot = lambda: np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+        manager.dismiss_end_screen(use_play_again=True)
+
+        self.assertEqual(manager.window_controller.presses, [])
+        self.assertEqual(manager.window_controller.clicks[0][0:2], (1660, 980))
+        self.assertIn(list("wasd"), manager.window_controller.keys_released)
+
+    @patch("stage_manager.extract_text_strings", return_value=["exit", "play again"])
+    def test_play_again_visible_does_not_exit_even_when_exit_exists(self, *_):
+        manager = self.make_manager("play_again")
+        manager.window_controller.screenshot = lambda: np.zeros((1080, 1920, 3), dtype=np.uint8)
 
         manager.dismiss_end_screen(use_play_again=True)
 

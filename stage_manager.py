@@ -102,9 +102,27 @@ class StageManager:
         except (TypeError, ValueError):
             return True
 
+    def can_current_brawler_have_prestige_reward(self):
+        current = self.brawlers_pick_data[0] if getattr(self, "brawlers_pick_data", None) else {}
+        if str(current.get("type", "trophies")).strip().lower() != "trophies":
+            return False
+
+        target = self._number_or_default(current.get("push_until", 1000), 1000)
+        trophies = self._number_or_default(
+            getattr(self.Trophy_observer, "current_trophies", current.get("trophies", 0)),
+            0,
+        )
+        return target == 1000 and trophies >= 1000
+
     def dismiss_end_screen(self, use_play_again=False):
         self.window_controller.keys_up(list("wasd"))
         if use_play_again:
+            screenshot = self.window_controller.screenshot()
+            exit_center = self.get_play_again_missing_exit_center(screenshot)
+            if exit_center is not None:
+                print("Play Again unavailable; clicking EXIT to requeue from lobby.")
+                self.window_controller.click(*exit_center, delay=0.08)
+                return
             print("Post-match action: clicking PLAY AGAIN.")
             self.window_controller.click(
                 int(1215 * self.window_controller.width_ratio),
@@ -113,6 +131,36 @@ class StageManager:
             )
             return
         self.window_controller.press_key("Q")
+
+    def get_play_again_missing_exit_center(self, screenshot):
+        if screenshot is None or screenshot.size == 0:
+            return None
+
+        height, width = screenshot.shape[:2]
+        button_crop = screenshot[int(height * 0.78):height, int(width * 0.72):width]
+        if button_crop.size == 0:
+            return None
+
+        try:
+            texts = extract_text_strings(button_crop)
+        except Exception:
+            return None
+
+        normalized_words = [normalize_brawler_name(text) for text in texts]
+        normalized_text = " ".join(normalized_words)
+        compact_text = "".join(normalized_words)
+        play_again_visible = (
+                "play" in normalized_text and "again" in normalized_text
+        ) or "playagain" in compact_text
+        if play_again_visible:
+            return None
+        if "exit" not in normalized_text:
+            return None
+
+        return (
+            int(1660 * self.window_controller.width_ratio),
+            int(980 * self.window_controller.height_ratio),
+        )
 
     def restart_and_select_next_after_target(self, target, type_of_push):
         print("Target reached in Play Again mode; restarting Brawl Stars before selecting next brawler.")
@@ -620,8 +668,8 @@ class StageManager:
         self.window_controller.press_key("Q")
 
     def handle_prestige_reward(self):
-        if getattr(self.Trophy_observer, "current_trophies", 0) < 1000:
-            print("Prestige reward ignored; current brawler has not reached 1000 trophies.")
+        if not self.can_current_brawler_have_prestige_reward():
+            print("Prestige reward ignored; current brawler is not on a 1000 trophy prestige target.")
             return
         screenshot = self.window_controller.screenshot()
         screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
