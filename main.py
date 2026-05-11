@@ -97,7 +97,6 @@ def normalize_detected_state(
                 or previous_state in OUT_OF_MATCH_REWARD_STATES
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or previous_state in STAR_DROP_STATES
-                or match_result_seen
         ) and not match_launch_pending:
             return detected_state
         return previous_state or "match"
@@ -108,12 +107,17 @@ def normalize_detected_state(
         ):
             return detected_state
         return previous_state or "match"
-    if detected_state in OUT_OF_MATCH_REWARD_STATES and not (
-            lobby_seen_since_match or match_result_seen
-    ):
-        return "match"
-    if detected_state in OUT_OF_MATCH_REWARD_STATES and match_launch_pending and not match_result_seen:
-        return "match"
+    if detected_state in OUT_OF_MATCH_REWARD_STATES:
+        allowed_context = (
+                previous_state in MATCH_RESULT_STATES
+                or previous_state in OUT_OF_MATCH_REWARD_STATES
+                or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
+                or (previous_state == "lobby" and lobby_seen_since_match)
+        )
+        if not allowed_context:
+            return previous_state or "match"
+        if match_launch_pending and previous_state not in MATCH_RESULT_STATES:
+            return "match"
     return detected_state
 
 
@@ -639,7 +643,13 @@ def pyla_main(data):
             if state == "match":
                 self.lobby_seen_since_match = False
                 self.match_launch_pending = False
-                if previous_state == "lobby":
+                if (
+                        previous_state == "lobby"
+                        or previous_state in MATCH_RESULT_STATES
+                        or previous_state in OUT_OF_MATCH_REWARD_STATES
+                        or previous_state in STAR_DROP_STATES
+                        or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
+                ):
                     self.post_match_reward_until = 0.0
                     self.reward_chain_seen = False
             elif state == "lobby":

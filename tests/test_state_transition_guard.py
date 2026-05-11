@@ -17,6 +17,29 @@ class StateTransitionGuardTests(unittest.TestCase):
                     "match",
                 )
 
+    def test_out_of_match_rewards_are_blocked_from_match_even_inside_reward_window(self):
+        for state in ("prestige_reward", "trophy_reward"):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    normalize_detected_state(
+                        state,
+                        previous_state="match",
+                        match_result_seen=True,
+                    ),
+                    "match",
+                )
+
+    def test_prestige_reward_does_not_rearm_after_falling_back_to_match(self):
+        self.assertEqual(
+            normalize_detected_state(
+                "prestige_reward",
+                previous_state="match",
+                lobby_seen_since_match=False,
+                match_result_seen=True,
+            ),
+            "match",
+        )
+
     def test_reward_unlock_is_allowed_after_trophy_reward(self):
         self.assertEqual(
             normalize_detected_state(
@@ -220,7 +243,7 @@ class StateTransitionGuardTests(unittest.TestCase):
                 previous_state="match",
                 match_result_seen=True,
             ),
-            "daily_star_drop",
+            "match",
         )
 
     def test_lobby_after_match_depends_on_stable_lobby_state_not_vision_quietness(self):
