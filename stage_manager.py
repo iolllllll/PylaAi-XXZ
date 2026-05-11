@@ -581,14 +581,26 @@ class StageManager:
         height_ratio = current_height / 1080
         x = int(965 * width_ratio)
         y = int(525 * height_ratio)
-        if drop_type in ("angelic", "demonic", "daily_hold", "starr_nova_hold"):
-            press_count = 3 if drop_type == "starr_nova_hold" else 2
-            press_duration = 1.35 if drop_type == "starr_nova_hold" else 1.15
-            for _ in range(press_count):
+        if drop_type == "starr_nova_hold":
+            for duration in (5.0, 10.0):
                 if hasattr(self.window_controller, "long_press"):
-                    self.window_controller.long_press(x, y, duration=press_duration)
+                    self.window_controller.long_press(x, y, duration=duration)
                 else:
-                    self.window_controller.click(x, y, delay=press_duration)
+                    self.window_controller.click(x, y, delay=duration)
+                time.sleep(0.25)
+
+                followup = self.window_controller.screenshot()
+                followup_bgr = cv2.cvtColor(followup, cv2.COLOR_RGB2BGR)
+                if get_star_drop_type(followup_bgr) != "starr_nova_hold":
+                    break
+                if duration == 5.0:
+                    print("Starr Nova hold still detected after 5s; trying 10s hold.")
+        elif drop_type in ("angelic", "demonic", "daily_hold"):
+            for _ in range(2):
+                if hasattr(self.window_controller, "long_press"):
+                    self.window_controller.long_press(x, y, duration=1.15)
+                else:
+                    self.window_controller.click(x, y, delay=1.15)
                 time.sleep(0.25)
         else:
             for _ in range(5):

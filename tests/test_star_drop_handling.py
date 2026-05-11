@@ -117,16 +117,28 @@ class StarDropHandlingTests(unittest.TestCase):
         self.assertEqual(manager.window_controller.keys_released, [list("wasd")])
 
     @patch("stage_manager.time.sleep", return_value=None)
-    @patch("stage_manager.get_star_drop_type", return_value="starr_nova_hold")
-    def test_starr_nova_drop_uses_long_presses(self, *_):
+    @patch("stage_manager.get_star_drop_type", side_effect=["starr_nova_hold", None])
+    def test_starr_nova_drop_uses_five_second_hold_first(self, *_):
         manager = object.__new__(StageManager)
         manager.window_controller = DummyDropWindowController()
 
         manager.handle_star_drop()
 
         self.assertEqual(manager.window_controller.clicks, [])
-        self.assertEqual(len(manager.window_controller.long_presses), 3)
-        self.assertTrue(all(press[2] == 1.35 for press in manager.window_controller.long_presses))
+        self.assertEqual(len(manager.window_controller.long_presses), 1)
+        self.assertEqual(manager.window_controller.long_presses[0][2], 5.0)
+        self.assertEqual(manager.window_controller.keys_released, [list("wasd")])
+
+    @patch("stage_manager.time.sleep", return_value=None)
+    @patch("stage_manager.get_star_drop_type", side_effect=["starr_nova_hold", "starr_nova_hold", None])
+    def test_starr_nova_drop_tries_ten_seconds_when_still_detected(self, *_):
+        manager = object.__new__(StageManager)
+        manager.window_controller = DummyDropWindowController()
+
+        manager.handle_star_drop()
+
+        self.assertEqual(manager.window_controller.clicks, [])
+        self.assertEqual([press[2] for press in manager.window_controller.long_presses], [5.0, 10.0])
         self.assertEqual(manager.window_controller.keys_released, [list("wasd")])
 
     @patch("stage_manager.time.sleep", return_value=None)
