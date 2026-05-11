@@ -40,6 +40,28 @@ class StateTransitionGuardTests(unittest.TestCase):
             "match",
         )
 
+    def test_prestige_reward_requires_current_brawler_at_1000_trophies(self):
+        self.assertEqual(
+            normalize_detected_state(
+                "prestige_reward",
+                previous_state="end_1st",
+                match_result_seen=True,
+                trophy_result_recorded=True,
+                prestige_reward_allowed=False,
+            ),
+            "end_1st",
+        )
+        self.assertEqual(
+            normalize_detected_state(
+                "prestige_reward",
+                previous_state="end_1st",
+                match_result_seen=True,
+                trophy_result_recorded=True,
+                prestige_reward_allowed=True,
+            ),
+            "prestige_reward",
+        )
+
     def test_rewards_are_allowed_from_match_after_trophies_were_recorded(self):
         for state in ("prestige_reward", "trophy_reward", "star_drop", "daily_star_drop", "nova_star_drop"):
             with self.subTest(state=state):
@@ -247,6 +269,24 @@ class StateTransitionGuardTests(unittest.TestCase):
             normalize_detected_state(
                 "nova_star_drop",
                 previous_state="star_drop",
+            ),
+            "nova_star_drop",
+        )
+        self.assertEqual(
+            normalize_detected_state(
+                "daily_star_drop",
+                previous_state="match",
+                match_result_seen=True,
+            ),
+            "match",
+        )
+
+    def test_nova_star_drop_can_survive_transient_match_after_result(self):
+        self.assertEqual(
+            normalize_detected_state(
+                "nova_star_drop",
+                previous_state="match",
+                match_result_seen=True,
             ),
             "nova_star_drop",
         )

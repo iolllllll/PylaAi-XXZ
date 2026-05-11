@@ -87,6 +87,7 @@ def normalize_detected_state(
         match_launch_pending=False,
         match_result_seen=False,
         trophy_result_recorded=False,
+        prestige_reward_allowed=True,
 ):
     if detected_state == "match_making":
         if previous_state in {"lobby", "match_making"} or match_launch_pending:
@@ -98,6 +99,7 @@ def normalize_detected_state(
                 or previous_state in OUT_OF_MATCH_REWARD_STATES
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or previous_state in STAR_DROP_STATES
+                or (detected_state == "nova_star_drop" and previous_state == "match" and match_result_seen)
                 or (trophy_result_recorded and match_result_seen)
         )
         if allowed_context and not match_launch_pending:
@@ -111,6 +113,8 @@ def normalize_detected_state(
             return detected_state
         return previous_state or "match"
     if detected_state in OUT_OF_MATCH_REWARD_STATES:
+        if detected_state == "prestige_reward" and not prestige_reward_allowed:
+            return previous_state or "match"
         allowed_context = (
                 previous_state in MATCH_RESULT_STATES
                 or previous_state in OUT_OF_MATCH_REWARD_STATES
@@ -143,7 +147,8 @@ def pyla_main(data):
             self.states_requiring_data = ["lobby"]
             if data[0]['automatically_pick']:
                 print("Picking brawler automatically")
-                self.lobby_automator.select_brawler(data[0]['brawler'])
+                if not self.lobby_automator.select_brawler(data[0]['brawler']):
+                    print("Automatic brawler pick failed; continuing without crashing.")
             self.Play.current_brawler = data[0]['brawler']
             self.no_detections_action_threshold = 60 * 8
             self.initialize_stage_manager()
@@ -623,6 +628,7 @@ def pyla_main(data):
                 match_launch_pending=self.match_launch_pending,
                 match_result_seen=post_match_context_active,
                 trophy_result_recorded=trophy_result_recorded,
+                prestige_reward_allowed=getattr(self.Stage_manager.Trophy_observer, "current_trophies", 0) >= 1000,
             )
             if detected_state != "lobby":
                 self.pending_lobby_since = None
@@ -657,13 +663,7 @@ def pyla_main(data):
             if state == "match":
                 self.lobby_seen_since_match = False
                 self.match_launch_pending = False
-                if (
-                        previous_state == "lobby"
-                        or previous_state in MATCH_RESULT_STATES
-                        or previous_state in OUT_OF_MATCH_REWARD_STATES
-                        or previous_state in STAR_DROP_STATES
-                        or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
-                ):
+                if previous_state == "lobby":
                     self.post_match_reward_until = 0.0
                     self.reward_chain_seen = False
             elif state == "lobby":

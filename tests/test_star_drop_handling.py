@@ -125,8 +125,8 @@ class StarDropHandlingTests(unittest.TestCase):
         manager.handle_star_drop()
 
         self.assertEqual(manager.window_controller.clicks, [])
-        self.assertEqual(len(manager.window_controller.long_presses), 2)
-        self.assertTrue(all(press[2] == 1.15 for press in manager.window_controller.long_presses))
+        self.assertEqual(len(manager.window_controller.long_presses), 3)
+        self.assertTrue(all(press[2] == 1.35 for press in manager.window_controller.long_presses))
         self.assertEqual(manager.window_controller.keys_released, [list("wasd")])
 
     @patch("stage_manager.time.sleep", return_value=None)

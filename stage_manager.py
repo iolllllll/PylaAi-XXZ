@@ -12,6 +12,7 @@ from state_finder import (
     find_game_result,
     is_in_prestige_reward,
     get_prestige_next_button_center,
+    get_team_invite_reject_button_center,
     get_star_drop_type,
     get_skin_reward_continue_button_center,
 )
@@ -136,8 +137,7 @@ class StageManager:
         if selection_method == "lowest_trophies":
             selected = self.Lobby_automation.select_lowest_trophy_brawler()
         else:
-            self.Lobby_automation.select_brawler(self.brawlers_pick_data[0]["brawler"])
-            selected = True
+            selected = self.Lobby_automation.select_brawler(self.brawlers_pick_data[0]["brawler"])
         if not selected:
             print("Could not confirm next brawler selection after restart.")
             return False
@@ -480,8 +480,7 @@ class StageManager:
                         selected = self.Lobby_automation.select_lowest_trophy_brawler()
                     else:
                         next_brawler_name = self.brawlers_pick_data[0]['brawler']
-                        self.Lobby_automation.select_brawler(next_brawler_name)
-                        selected = True
+                        selected = self.Lobby_automation.select_brawler(next_brawler_name)
                     if not selected:
                         print("Could not confirm the next brawler selection reached lobby; delaying match start.")
                         self.window_controller.keys_up(list("wasd"))
@@ -583,11 +582,13 @@ class StageManager:
         x = int(965 * width_ratio)
         y = int(525 * height_ratio)
         if drop_type in ("angelic", "demonic", "daily_hold", "starr_nova_hold"):
-            for _ in range(2):
+            press_count = 3 if drop_type == "starr_nova_hold" else 2
+            press_duration = 1.35 if drop_type == "starr_nova_hold" else 1.15
+            for _ in range(press_count):
                 if hasattr(self.window_controller, "long_press"):
-                    self.window_controller.long_press(x, y, duration=1.15)
+                    self.window_controller.long_press(x, y, duration=press_duration)
                 else:
-                    self.window_controller.click(x, y, delay=1.15)
+                    self.window_controller.click(x, y, delay=press_duration)
                 time.sleep(0.25)
         else:
             for _ in range(5):
@@ -607,6 +608,9 @@ class StageManager:
         self.window_controller.press_key("Q")
 
     def handle_prestige_reward(self):
+        if getattr(self.Trophy_observer, "current_trophies", 0) < 1000:
+            print("Prestige reward ignored; current brawler has not reached 1000 trophies.")
+            return
         screenshot = self.window_controller.screenshot()
         screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
         next_button_center = get_prestige_next_button_center(screenshot_bgr)
@@ -756,6 +760,12 @@ class StageManager:
 
     def close_pop_up(self):
         screenshot = self.window_controller.screenshot()
+        team_invite_reject = get_team_invite_reject_button_center(screenshot, image_is_rgb=True)
+        if team_invite_reject is not None:
+            self.window_controller.keys_up(list("wasd"))
+            self.window_controller.click(*team_invite_reject)
+            self.tap_with_adb_fallback(*team_invite_reject, screenshot_shape=screenshot.shape)
+            return
         if self.close_popup_icon is None:
             self.close_popup_icon = load_image("images/states/close_popup.png", self.window_controller.scale_factor)
         popup_location = find_template_center(screenshot, self.close_popup_icon)

@@ -33,16 +33,42 @@ class LobbyAutomation:
                 print(f"Could not read state while opening brawler menu: {e}")
             return None
 
-    def open_brawler_selection(self, attempts=3):
+    def open_brawler_selection(self, attempts=None):
         wr = self.window_controller.width_ratio
         hr = self.window_controller.height_ratio
-        # Keep this click in the left-side BRAWLERS button band. Lower lobby
-        # buttons can open the pass/event panels and make first-pick silently fail.
-        brawler_button_points = ((128, 500), (110, 490), (145, 505))
+        # Keep these clicks in the left-side BRAWLERS button band. Different
+        # emulator scales and event layouts shift the safe center a bit; points
+        # that are too low can open the pass/event panels instead.
+        cfg_point = tuple(self.coords_cfg.get("lobby", {}).get("brawler_btn", (110, 490)))
+        brawler_button_points = (
+            (70, 500),
+            (90, 500),
+            (110, 490),
+            (128, 500),
+            (60, 535),
+            (145, 505),
+            cfg_point,
+            (76, 420),
+            (98, 420),
+            (122, 420),
+            (72, 455),
+            (100, 455),
+            (132, 455),
+            (82, 385),
+            (112, 385),
+        )
+        if attempts is None:
+            attempts = len(brawler_button_points)
 
         state = self._read_state()
         if state == "brawler_selection":
             return True
+
+        if state == "lobby" and self.click_visible_brawler_menu_button():
+            time.sleep(0.8)
+            state = self._read_state()
+            if state == "brawler_selection":
+                return True
 
         for attempt in range(attempts):
             if state == "shop":
@@ -52,6 +78,11 @@ class LobbyAutomation:
                 state = self._read_state()
                 if state == "brawler_selection":
                     return True
+                if state == "lobby" and self.click_visible_brawler_menu_button():
+                    time.sleep(0.8)
+                    state = self._read_state()
+                    if state == "brawler_selection":
+                        return True
 
             x, y = brawler_button_points[min(attempt, len(brawler_button_points) - 1)]
             self.window_controller.click(int(x * wr), int(y * hr))
@@ -67,6 +98,29 @@ class LobbyAutomation:
                 # the OCR loop continue instead of failing selection up front.
                 return True
 
+        return False
+
+    def click_visible_brawler_menu_button(self):
+        try:
+            screenshot = self.window_controller.screenshot()
+            if screenshot is None:
+                return False
+            results = extract_text_and_positions(screenshot)
+        except Exception:
+            return False
+
+        for text, box in results.items():
+            normalized = self.normalize_ocr_name(text)
+            if normalized not in {"brawlers", "brawler"}:
+                continue
+            center = box.get("center")
+            if not center:
+                continue
+            x, y = center
+            if x > screenshot.shape[1] * 0.35:
+                continue
+            self.window_controller.click(int(x), int(y))
+            return True
         return False
 
     def check_for_idle(self, frame):
@@ -100,7 +154,10 @@ class LobbyAutomation:
         target_key = self.normalize_ocr_name(brawler)
 
         if not self.open_brawler_selection():
-            raise RuntimeError("Could not open brawler selection menu without landing in another lobby panel.")
+            print(f"WARNING: Could not open brawler selection menu for '{brawler}'. "
+                  "Continuing with the currently selected brawler instead of crashing.")
+            self.press_back()
+            return False
         c = 0
         found_brawler = False
         for i in range(50):
@@ -202,7 +259,8 @@ class LobbyAutomation:
         if not found_brawler:
             print(f"WARNING: Brawler '{brawler}' was not found after 50 scroll attempts. "
                   f"The bot will continue with the currently selected brawler.")
-            raise ValueError(f"Brawler '{brawler}' could not be found in the brawler selection menu.")
+            return False
+        return True
 
     def select_lowest_trophy_brawler(self):
         wr = self.window_controller.width_ratio

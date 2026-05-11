@@ -83,13 +83,48 @@ class TestOpenBrawlerSelection(unittest.TestCase):
     def test_retries_when_brawler_button_opens_lobby_panel(self, *_):
         automation = object.__new__(LobbyAutomation)
         automation.window_controller = DummyBrawlerMenuController()
+        automation.coords_cfg = {"lobby": {"brawler_btn": (110, 490), "select_btn": (0, 0)}}
 
         self.assertTrue(automation.open_brawler_selection())
 
         self.assertEqual(automation.window_controller.back_presses, 1)
         first_click = automation.window_controller.clicks[0]
         self.assertLess(first_click[1], 650)
-        self.assertEqual(first_click, (128, 500))
+        self.assertEqual(first_click, (70, 500))
+
+    @patch("lobby_automation.time.sleep", return_value=None)
+    @patch("lobby_automation.get_state", side_effect=["lobby", "shop", "lobby", "shop", "lobby", "shop", "lobby", "shop", "lobby", "shop", "lobby", "shop", "lobby", "shop", "lobby", "brawler_selection"])
+    def test_retries_upper_brawler_button_band_after_lobby_panels(self, *_):
+        automation = object.__new__(LobbyAutomation)
+        automation.window_controller = DummyBrawlerMenuController()
+        automation.coords_cfg = {"lobby": {"brawler_btn": (110, 490), "select_btn": (0, 0)}}
+
+        self.assertTrue(automation.open_brawler_selection(attempts=8))
+
+        self.assertIn((76, 420), automation.window_controller.clicks)
+        self.assertGreaterEqual(automation.window_controller.back_presses, 7)
+
+    @patch("lobby_automation.extract_text_and_positions", return_value={"BRAWLERS": {"center": (96, 430)}})
+    @patch("lobby_automation.time.sleep", return_value=None)
+    @patch("lobby_automation.get_state", side_effect=["lobby", "brawler_selection"])
+    def test_uses_visible_brawlers_label_when_available(self, *_):
+        automation = object.__new__(LobbyAutomation)
+        automation.window_controller = DummyBrawlerMenuController()
+        automation.coords_cfg = {"lobby": {"brawler_btn": (110, 490), "select_btn": (0, 0)}}
+
+        self.assertTrue(automation.open_brawler_selection())
+
+        self.assertEqual(automation.window_controller.clicks, [(96, 430)])
+
+    @patch("lobby_automation.time.sleep", return_value=None)
+    @patch("lobby_automation.get_state", return_value="shop")
+    def test_selection_failure_does_not_crash_startup(self, *_):
+        automation = object.__new__(LobbyAutomation)
+        automation.window_controller = DummyBrawlerMenuController()
+        automation.coords_cfg = {"lobby": {"brawler_btn": (110, 490), "select_btn": (0, 0)}}
+
+        self.assertFalse(automation.select_brawler("shelly"))
+        self.assertGreaterEqual(automation.window_controller.back_presses, 1)
 
 
 if __name__ == "__main__":
