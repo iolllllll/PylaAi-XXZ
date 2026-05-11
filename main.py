@@ -86,18 +86,21 @@ def normalize_detected_state(
         lobby_seen_since_match=False,
         match_launch_pending=False,
         match_result_seen=False,
+        trophy_result_recorded=False,
 ):
     if detected_state == "match_making":
         if previous_state in {"lobby", "match_making"} or match_launch_pending:
             return detected_state
         return previous_state or "match"
     if detected_state in STAR_DROP_STATES:
-        if (
+        allowed_context = (
                 previous_state in MATCH_RESULT_STATES
                 or previous_state in OUT_OF_MATCH_REWARD_STATES
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or previous_state in STAR_DROP_STATES
-        ) and not match_launch_pending:
+                or (trophy_result_recorded and match_result_seen)
+        )
+        if allowed_context and not match_launch_pending:
             return detected_state
         return previous_state or "match"
     if detected_state in TROPHY_REWARD_FOLLOWUP_STATES:
@@ -113,6 +116,7 @@ def normalize_detected_state(
                 or previous_state in OUT_OF_MATCH_REWARD_STATES
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or (previous_state == "lobby" and lobby_seen_since_match)
+                or (trophy_result_recorded and match_result_seen)
         )
         if not allowed_context:
             return previous_state or "match"
@@ -598,17 +602,27 @@ def pyla_main(data):
             if detected_state in MATCH_RESULT_STATES:
                 self.post_match_reward_until = now + self.post_match_reward_window_seconds
 
+            trophy_result_recorded = (
+                    0 < now - getattr(self.Stage_manager, "last_recorded_result_time", 0.0)
+                    <= self.post_match_reward_window_seconds
+            )
             reward_chain_active = (
                     self.reward_chain_seen
                     or previous_state is None
                     or previous_state in OUT_OF_MATCH_REWARD_STATES
+            )
+            post_match_context_active = (
+                    trophy_result_recorded
+                    or now <= self.post_match_reward_until
+                    or reward_chain_active
             )
             state = normalize_detected_state(
                 detected_state,
                 previous_state=previous_state,
                 lobby_seen_since_match=self.lobby_seen_since_match,
                 match_launch_pending=self.match_launch_pending,
-                match_result_seen=(now <= self.post_match_reward_until) or reward_chain_active,
+                match_result_seen=post_match_context_active,
+                trophy_result_recorded=trophy_result_recorded,
             )
             if detected_state != "lobby":
                 self.pending_lobby_since = None

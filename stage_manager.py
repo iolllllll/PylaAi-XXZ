@@ -51,6 +51,9 @@ class StageManager:
         brawler_list = [brawler["brawler"] for brawler in brawlers_data]
         self.Trophy_observer = TrophyObserver(brawler_list)
         bot_config = load_toml_as_dict("cfg/bot_config.toml")
+        self.post_match_action = str(bot_config.get("post_match_action", "lobby")).strip().lower()
+        if self.post_match_action not in ("lobby", "play_again"):
+            self.post_match_action = "lobby"
         adaptive_enabled = str(bot_config.get("adaptive_brain_enabled", "yes")).lower() in ("yes", "true", "1")
         adaptive_window = int(bot_config.get("adaptive_brain_window", 20))
         self.adaptive_brain = AdaptiveBrain(enabled=adaptive_enabled, window_size=adaptive_window)
@@ -89,6 +92,59 @@ class StageManager:
             'trophy_reward': lambda: self.window_controller.press_key("Q"),
             'reward_unlock': self.handle_reward_unlock,
         }
+
+    def should_use_play_again(self, value=0, target=0):
+        if self.post_match_action != "play_again":
+            return False
+        try:
+            return int(value) < int(target)
+        except (TypeError, ValueError):
+            return True
+
+    def dismiss_end_screen(self, use_play_again=False):
+        self.window_controller.keys_up(list("wasd"))
+        if use_play_again:
+            print("Post-match action: clicking PLAY AGAIN.")
+            self.window_controller.click(
+                int(1215 * self.window_controller.width_ratio),
+                int(935 * self.window_controller.height_ratio),
+                delay=0.08,
+            )
+            return
+        self.window_controller.press_key("Q")
+
+    def restart_and_select_next_after_target(self, target, type_of_push):
+        print("Target reached in Play Again mode; restarting Brawl Stars before selecting next brawler.")
+        if not self._prepare_next_push_all_brawler(target, type_of_push):
+            print("No remaining brawlers are below the target after restart preparation.")
+            self.stop_after_post_match_rewards = True
+            return False
+
+        self.window_controller.keys_up(list("wasd"))
+        if not self.window_controller.restart_brawl_stars():
+            print("Brawl Stars restart failed after target completion; falling back to normal lobby flow.")
+            return False
+        if hasattr(self.window_controller, "restart_scrcpy_client"):
+            self.window_controller.restart_scrcpy_client()
+
+        lobby_screenshot = self.wait_for_lobby_after_reward(max_attempts=45)
+        if lobby_screenshot is None:
+            print("Could not confirm lobby after target-completion restart; delaying next selection.")
+            return False
+
+        selection_method = self.brawlers_pick_data[0].get("selection_method", "named_brawler")
+        if selection_method == "lowest_trophies":
+            selected = self.Lobby_automation.select_lowest_trophy_brawler()
+        else:
+            self.Lobby_automation.select_brawler(self.brawlers_pick_data[0]["brawler"])
+            selected = True
+        if not selected:
+            print("Could not confirm next brawler selection after restart.")
+            return False
+
+        self.window_controller.press_key("Q")
+        print("Target-completion restart finished; selected next brawler and started matchmaking.")
+        return True
 
     def send_webhook_notification(self, event_type, screenshot=None, details=None):
         loop = asyncio.new_event_loop()
@@ -147,7 +203,7 @@ class StageManager:
         """Remove completed Push All rows and choose the current lowest remaining row.
 
         Push All queues are built from API trophies at launch, but the queue can
-        become stale after each match. Re-sorting here keeps 250/500/750/1000
+        become stale after each match. Re-sorting here keeps all trophy targets
         targets on the same "least trophies next" behavior the player sees in
         the Brawl Stars brawler menu.
         """
@@ -326,7 +382,7 @@ class StageManager:
 
     def start_game(self):
         print("state is lobby, starting game")
-        if self.stop_after_post_match_rewards:
+        if getattr(self, "stop_after_post_match_rewards", False):
             print("Post-match rewards cleared; stopping after completed target.")
             if os.path.exists("latest_brawler_data.json"):
                 os.remove("latest_brawler_data.json")
@@ -600,6 +656,7 @@ class StageManager:
         current_result = current_state.split("_", 1)[1] if current_state.startswith("end_") else None
         already_recorded = current_result is not None and self.active_end_result == current_result
         stats_recorded = already_recorded
+        use_play_again = False
         if already_recorded:
             found_game_result = current_result
             print(f"end_game: re-entry on '{current_state}', skipping trophy update")
@@ -648,8 +705,10 @@ class StageManager:
                     1000 if type_to_push == "trophies" else 300,
                 )
                 value = self._number_or_default(value, 0)
+                use_play_again = self.should_use_play_again(value, push_current_brawler_till)
 
                 if value >= push_current_brawler_till:
+                    use_play_again = False
                     if len(self.brawlers_pick_data) <= 1:
                         print(
                             "Brawler reached required trophies/wins. No more brawlers selected for pushing in the menu. "
@@ -673,12 +732,15 @@ class StageManager:
                             value,
                             push_current_brawler_till,
                         )
+                        if self.post_match_action == "play_again":
+                            if self.restart_and_select_next_after_target(push_current_brawler_till, type_to_push):
+                                return
             
             # Keep pressing the dismiss key on every iteration until the
             # end-of-match screens give way. One press is rarely enough in
             # showdown: after the place screen there can be star drops,
             # trophy rewards, and offers to dismiss.
-            self.window_controller.press_key("Q")
+            self.dismiss_end_screen(use_play_again=use_play_again)
             button_pressed = True
 
             time.sleep(self.end_screen_dismiss_delay)

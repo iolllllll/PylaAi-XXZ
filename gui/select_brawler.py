@@ -468,7 +468,7 @@ class SelectBrawler:
         top.title("Push All Target")
         top.attributes("-topmost", True)
         win_w = int(360 * scale_factor)
-        win_h = int(230 * scale_factor)
+        win_h = int(300 * scale_factor)
         top.geometry(f"{win_w}x{win_h}+{str(int(950 * scale_factor))}+{str(int(260 * scale_factor))}")
 
         ctk.CTkLabel(
@@ -488,7 +488,7 @@ class SelectBrawler:
                 pass
             self.push_all(target)
 
-        targets = [250, 500, 750, 1000]
+        targets = [250, 500, 750, 1000, 1250, 1500]
         for index, target in enumerate(targets):
             row = index // 2
             col = index % 2

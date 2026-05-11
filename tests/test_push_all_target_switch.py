@@ -87,7 +87,7 @@ class PushAllTargetSwitchTest(unittest.TestCase):
     @patch("stage_manager.time.sleep", return_value=None)
     @patch("stage_manager.get_state", return_value="lobby")
     def test_push_all_targets_switch_by_lowest_trophy_sort(self, *_):
-        for target in (250, 500, 750, 1000):
+        for target in (250, 500, 750, 1000, 1250, 1500):
             with self.subTest(target=target):
                 manager = self.make_manager(target)
 
@@ -160,7 +160,7 @@ class PushAllTargetSwitchTest(unittest.TestCase):
     @patch("stage_manager.time.sleep", return_value=None)
     @patch("stage_manager.get_state", return_value="lobby")
     def test_push_all_switches_when_saved_row_reached_target_even_if_observer_is_stale(self, *_):
-        for target in (250, 500, 750, 1000):
+        for target in (250, 500, 750, 1000, 1250, 1500):
             with self.subTest(target=target):
                 manager = self.make_manager(target)
                 manager.brawlers_pick_data[0]["trophies"] = target
@@ -185,7 +185,7 @@ class PushAllTargetSwitchTest(unittest.TestCase):
             mock_fetch_player,
             _mock_save,
     ):
-        for target in (500, 750, 1000):
+        for target in (500, 750, 1000, 1250, 1500):
             with self.subTest(target=target):
                 manager = self.make_manager(target)
                 manager.brawlers_pick_data[0]["trophies"] = target - 5

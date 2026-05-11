@@ -96,11 +96,12 @@ class PushAll1kSelectionTest(unittest.TestCase):
             "player_tag": "TAG",
             "timeout_seconds": 15,
         }), patch("gui.select_brawler.fetch_brawl_stars_player", return_value=player_data):
-            for target in (250, 500, 750, 1000):
+            for target in (250, 500, 750, 1000, 1250, 1500):
                 with self.subTest(target=target):
                     data = SelectBrawler.get_push_all_data(obj, target)
 
                     self.assertTrue(data)
+                    self.assertTrue(all(row["push_until"] == target for row in data))
                     self.assertTrue(all(row["selection_method"] == "lowest_trophies" for row in data))
                     self.assertFalse(data[0]["automatically_pick"])
                     self.assertTrue(all(row["automatically_pick"] for row in data[1:]))

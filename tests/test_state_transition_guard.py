@@ -40,6 +40,19 @@ class StateTransitionGuardTests(unittest.TestCase):
             "match",
         )
 
+    def test_rewards_are_allowed_from_match_after_trophies_were_recorded(self):
+        for state in ("prestige_reward", "trophy_reward", "star_drop", "daily_star_drop", "nova_star_drop"):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    normalize_detected_state(
+                        state,
+                        previous_state="match",
+                        match_result_seen=True,
+                        trophy_result_recorded=True,
+                    ),
+                    state,
+                )
+
     def test_reward_unlock_is_allowed_after_trophy_reward(self):
         self.assertEqual(
             normalize_detected_state(

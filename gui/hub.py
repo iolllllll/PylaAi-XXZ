@@ -73,6 +73,7 @@ class Hub:
         self.bot_config.setdefault("unstuck_movement_delay", 3.0)
         self.bot_config.setdefault("unstuck_movement_hold_time", 1.5)
         self.bot_config.setdefault("play_again_on_win", "no")
+        self.bot_config.setdefault("post_match_action", "lobby")
         self.bot_config.setdefault("current_playstyle", "default.pyla")
         self.bot_config.setdefault("showdown_playstyle_mode", "follow")
         self.bot_config.setdefault("teammate_lock_max_jump", 320)
@@ -827,30 +828,40 @@ class Hub:
         long_press_cb.grid(row=row_idx, column=1, sticky="w", padx=S(20), pady=S(10))
         row_idx += 1
 
-        lbl_play_again = ctk.CTkLabel(container, text="Play Again On Win:", font=("Arial", S(18)))
-        lbl_play_again.grid(row=row_idx, column=0, sticky="e", padx=S(20), pady=S(10))
-        play_again_var = tk.BooleanVar(
-            value=(str(self.bot_config["play_again_on_win"]).lower() in ["yes", "true"])
-        )
+        lbl_post_match = ctk.CTkLabel(container, text="After Round:", font=("Arial", S(18)))
+        lbl_post_match.grid(row=row_idx, column=0, sticky="e", padx=S(20), pady=S(10))
+        post_match_labels = {
+            "lobby": "Return to lobby",
+            "play_again": "Press Play Again",
+        }
+        reverse_post_match_labels = {label: key for key, label in post_match_labels.items()}
+        current_post_match = str(self.bot_config.get("post_match_action", "lobby")).strip().lower()
+        if current_post_match not in post_match_labels:
+            current_post_match = "lobby"
+            self.bot_config["post_match_action"] = current_post_match
+            save_dict_as_toml(self.bot_config, self.bot_config_path)
+        post_match_var = tk.StringVar(value=post_match_labels[current_post_match])
 
-        def toggle_play_again():
-            self.bot_config["play_again_on_win"] = "yes" if play_again_var.get() else "no"
+        def on_post_match_change(choice):
+            self.bot_config["post_match_action"] = reverse_post_match_labels.get(choice, "lobby")
             save_dict_as_toml(self.bot_config, self.bot_config_path)
 
-        play_again_cb = ctk.CTkCheckBox(
+        post_match_menu = ctk.CTkOptionMenu(
             container,
-            text="",
-            variable=play_again_var,
-            command=toggle_play_again,
+            values=list(post_match_labels.values()),
+            command=on_post_match_change,
+            variable=post_match_var,
+            font=("Arial", S(16)),
             fg_color="#AA2A2A",
-            hover_color="#BB3A3A",
-            width=S(30),
-            height=S(30)
+            button_color="#AA2A2A",
+            button_hover_color="#BB3A3A",
+            width=S(170),
+            height=S(35)
         )
-        play_again_cb.grid(row=row_idx, column=1, sticky="w", padx=S(20), pady=S(10))
+        post_match_menu.grid(row=row_idx, column=1, sticky="w", padx=S(20), pady=S(10))
         self.attach_tooltip(
-            play_again_cb,
-            "If enabled, the bot presses 'Play Again' after a win instead of returning to the lobby."
+            post_match_menu,
+            "Return to lobby keeps the old flow. Press Play Again requeues from the result screen when the current brawler has not reached its target."
         )
         row_idx += 1
 
