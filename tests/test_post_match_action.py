@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
 from stage_manager import StageManager
@@ -103,6 +104,42 @@ class PostMatchActionTests(unittest.TestCase):
         self.assertEqual(manager.window_controller.presses, [])
         self.assertEqual(manager.window_controller.clicks[0][0:2], (1215, 935))
         self.assertIn(list("wasd"), manager.window_controller.keys_released)
+
+    def test_play_again_visual_button_skips_ocr(self):
+        manager = self.make_manager("play_again")
+        screenshot = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        blue_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (108, 210, 220), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        blue_rgb = tuple(int(v) for v in blue_bgr[::-1])
+        screenshot[850:1000, 1030:1390] = blue_rgb
+        screenshot[890:950, 1120:1300] = (255, 255, 255)
+        screenshot[960:1000, 1030:1390] = (5, 5, 5)
+        manager.window_controller.screenshot = lambda: screenshot
+
+        with patch("stage_manager.extract_text_strings", side_effect=AssertionError("OCR should not run")):
+            manager.dismiss_end_screen(use_play_again=True)
+
+        self.assertEqual(manager.window_controller.clicks[0][0:2], (1215, 935))
+
+    def test_exit_visual_button_skips_ocr_when_play_again_missing(self):
+        manager = self.make_manager("play_again")
+        screenshot = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        blue_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (108, 210, 220), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        blue_rgb = tuple(int(v) for v in blue_bgr[::-1])
+        screenshot[850:1020, 1480:1860] = blue_rgb
+        screenshot[900:970, 1580:1740] = (255, 255, 255)
+        screenshot[980:1020, 1480:1860] = (5, 5, 5)
+        manager.window_controller.screenshot = lambda: screenshot
+
+        with patch("stage_manager.extract_text_strings", side_effect=AssertionError("OCR should not run")):
+            manager.dismiss_end_screen(use_play_again=True)
+
+        self.assertEqual(manager.window_controller.clicks[0][0:2], (1660, 980))
 
     def test_lobby_mode_presses_continue_key(self):
         manager = self.make_manager("lobby")

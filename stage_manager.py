@@ -133,11 +133,17 @@ class StageManager:
         self.window_controller.keys_up(list("wasd"))
         if use_play_again:
             screenshot = self.window_controller.screenshot()
-            exit_center = self.get_play_again_missing_exit_center(screenshot)
+            exit_center = self.get_play_again_missing_exit_center(screenshot, allow_ocr=False)
             if exit_center is not None:
                 print("Play Again unavailable; clicking EXIT to requeue from lobby.")
                 self.window_controller.click(*exit_center, delay=0.08)
                 return
+            if not self.is_play_again_button_visually_available(screenshot):
+                exit_center = self.get_play_again_missing_exit_center(screenshot, allow_ocr=True)
+                if exit_center is not None:
+                    print("Play Again unavailable; clicking EXIT to requeue from lobby.")
+                    self.window_controller.click(*exit_center, delay=0.08)
+                    return
             print("Post-match action: clicking PLAY AGAIN.")
             self.window_controller.click(
                 int(1215 * self.window_controller.width_ratio),
@@ -147,16 +153,63 @@ class StageManager:
             return
         self.window_controller.press_key("Q")
 
-    def get_play_again_missing_exit_center(self, screenshot):
+    def _scaled_crop(self, image, region):
+        if image is None or image.size == 0:
+            return None
+        height, width = image.shape[:2]
+        x, y, w, h = region
+        x1 = max(0, int(x * width / 1920))
+        y1 = max(0, int(y * height / 1080))
+        x2 = min(width, int((x + w) * width / 1920))
+        y2 = min(height, int((y + h) * height / 1080))
+        crop = image[y1:y2, x1:x2]
+        return crop if crop.size else None
+
+    @staticmethod
+    def _button_color_ratios(crop):
+        hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
+        blue = cv2.inRange(hsv, np.array((95, 80, 100), dtype=np.uint8), np.array((125, 255, 255), dtype=np.uint8))
+        green = cv2.inRange(hsv, np.array((42, 70, 100), dtype=np.uint8), np.array((82, 255, 255), dtype=np.uint8))
+        yellow = cv2.inRange(hsv, np.array((18, 70, 110), dtype=np.uint8), np.array((38, 255, 255), dtype=np.uint8))
+        dark = cv2.inRange(hsv, np.array((0, 0, 0), dtype=np.uint8), np.array((179, 255, 90), dtype=np.uint8))
+        total = max(1, crop.shape[0] * crop.shape[1])
+        return {
+            "button": (cv2.countNonZero(blue) + cv2.countNonZero(green) + cv2.countNonZero(yellow)) / total,
+            "dark": cv2.countNonZero(dark) / total,
+        }
+
+    def is_play_again_button_visually_available(self, screenshot):
+        # Fast path: avoid OCR when the expected Play Again button is plainly
+        # present. The region is intentionally narrow so the far-right EXIT
+        # button does not make this look like Play Again.
+        play_crop = self._scaled_crop(screenshot, [1030, 850, 360, 150])
+        if play_crop is None:
+            return False
+        ratios = self._button_color_ratios(play_crop)
+        return ratios["button"] > 0.18 and ratios["dark"] > 0.035
+
+    def get_play_again_missing_exit_center(self, screenshot, allow_ocr=True):
         if screenshot is None or screenshot.size == 0:
             return None
 
-        height, width = screenshot.shape[:2]
-        button_crop = screenshot[int(height * 0.78):height, int(width * 0.72):width]
-        if button_crop.size == 0:
+        play_crop = self._scaled_crop(screenshot, [1030, 850, 360, 150])
+        exit_crop = self._scaled_crop(screenshot, [1480, 850, 380, 170])
+        if exit_crop is None:
+            return None
+        exit_ratios = self._button_color_ratios(exit_crop)
+        play_ratios = self._button_color_ratios(play_crop) if play_crop is not None else {"button": 0.0, "dark": 0.0}
+        if exit_ratios["button"] > 0.20 and exit_ratios["dark"] > 0.035 and play_ratios["button"] < 0.12:
+            return (
+                int(1660 * self.window_controller.width_ratio),
+                int(980 * self.window_controller.height_ratio),
+            )
+
+        if not allow_ocr:
             return None
 
         try:
+            height, width = screenshot.shape[:2]
+            button_crop = screenshot[int(height * 0.78):height, int(width * 0.72):width]
             texts = extract_text_strings(button_crop)
         except Exception:
             return None
