@@ -416,8 +416,6 @@ def pyla_main(data):
                 f"(feed_fps={self.perf_feed_fps:.2f}); recovery attempt {self.slow_feed_recovery_attempts}."
             )
             self.window_controller.keys_up(list("wasd"))
-            if self.slow_feed_recovery_attempts >= 2:
-                self.window_controller.reduce_capture_load_for_slow_feed()
             if not self.window_controller.restart_scrcpy_client():
                 self.handle_offline_emulator()
                 return False

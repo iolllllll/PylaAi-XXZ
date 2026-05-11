@@ -1,7 +1,11 @@
 import unittest
 from unittest.mock import patch
 
-from window_controller import WindowController, _foreground_package_from_text
+from window_controller import (
+    WindowController,
+    _foreground_package_from_text,
+    _package_task_display_from_text,
+)
 
 
 class LongRunWatchdogTests(unittest.TestCase):
@@ -12,6 +16,25 @@ class LongRunWatchdogTests(unittest.TestCase):
     def test_foreground_package_parser_handles_focused_app(self):
         text = "mFocusedApp=ActivityRecord{123 u0 com.android.launcher/.Launcher t1}"
         self.assertEqual(_foreground_package_from_text(text), "com.android.launcher")
+
+    def test_foreground_package_parser_ignores_input_method_target(self):
+        text = (
+            "mInputMethodTarget=Window{123 u0 com.android.launcher/.Launcher}\n"
+            "topResumedActivity=ActivityRecord{456 u0 com.supercell.brawlstars/com.supercell.titan.GameApp}"
+        )
+        self.assertEqual(_foreground_package_from_text(text), "com.supercell.brawlstars")
+
+    def test_package_display_parser_finds_hidden_mumu_display(self):
+        text = (
+            "RootTask{abc #1 type=home displayId=0}\n"
+            "  * Task{home #10 A=com.mumu.launcher U=0 displayId=0}\n"
+            "RootTask{def #2 type=standard displayId=6}\n"
+            "  * Task{game #42 A=com.supercell.brawlstars U=0 visible=true}\n"
+        )
+        self.assertEqual(
+            _package_task_display_from_text(text, "com.supercell.brawlstars"),
+            (42, 6),
+        )
 
     @patch("window_controller.time.time")
     def test_emulator_restart_respects_cooldown(self, mock_time):
@@ -42,25 +65,6 @@ class LongRunWatchdogTests(unittest.TestCase):
         controller.ensure_emulator_online = lambda: False
 
         self.assertFalse(controller.restart_brawl_stars())
-
-    def test_slow_feed_fallback_lowers_capture_load_without_config_change(self):
-        controller = object.__new__(WindowController)
-        controller.scrcpy_max_width = 960
-        controller.scrcpy_max_fps = 60
-        controller.scrcpy_bitrate = 3000000
-        controller.capture_fallback_level = 0
-
-        self.assertTrue(controller.reduce_capture_load_for_slow_feed())
-        self.assertEqual(controller.scrcpy_max_width, 854)
-        self.assertEqual(controller.scrcpy_max_fps, 30)
-        self.assertEqual(controller.scrcpy_bitrate, 2000000)
-
-        self.assertTrue(controller.reduce_capture_load_for_slow_feed())
-        self.assertEqual(controller.scrcpy_max_width, 720)
-        self.assertEqual(controller.scrcpy_max_fps, 30)
-        self.assertEqual(controller.scrcpy_bitrate, 1500000)
-
-        self.assertFalse(controller.reduce_capture_load_for_slow_feed())
 
     def test_restart_scrcpy_client_returns_false_when_start_fails_offline(self):
         controller = object.__new__(WindowController)

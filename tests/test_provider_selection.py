@@ -11,9 +11,9 @@ class ProviderSelectionTests(unittest.TestCase):
         "DmlExecutionProvider",
         "CPUExecutionProvider",
     ])
-    def test_auto_prefers_directml_before_cuda_on_windows(self, *_):
+    def test_auto_prefers_cuda_before_directml_when_available(self, *_):
         providers = _build_providers("auto")
-        self.assertEqual(providers[0], "DmlExecutionProvider")
+        self.assertEqual(providers[0][0], "CUDAExecutionProvider")
 
     @patch("detect.ort.get_available_providers", return_value=[
         "CUDAExecutionProvider",

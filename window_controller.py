@@ -9,7 +9,7 @@ import socket
 import threading
 import time
 import cv2
-from typing import List
+from typing import List, Optional, Tuple
 
 import scrcpy
 from adbutils import adb
@@ -191,7 +191,6 @@ def _foreground_package_from_text(text):
     patterns = (
         r"mCurrentFocus=.*?\s([A-Za-z0-9_.]+)/",
         r"mFocusedApp=.*?\s([A-Za-z0-9_.]+)/",
-        r"mInputMethodTarget=.*?\s([A-Za-z0-9_.]+)/",
         r"topResumedActivity=.*?\s([A-Za-z0-9_.]+)/",
         r"ResumedActivity:.*?\s([A-Za-z0-9_.]+)/",
     )
@@ -200,6 +199,87 @@ def _foreground_package_from_text(text):
         if match:
             return match.group(1)
     return ""
+
+
+def _package_task_display_from_text(text, package) -> Tuple[Optional[int], Optional[int]]:
+    text = text or ""
+    package = str(package or "").strip()
+    if not package or package not in text:
+        return None, None
+
+    current_display = None
+    fallback_task = None
+    fallback_display = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        display_match = re.search(r"\bdisplayId=(\d+)\b", line)
+        if display_match:
+            current_display = int(display_match.group(1))
+        if package not in line:
+            continue
+
+        line_display = current_display
+        if display_match:
+            line_display = int(display_match.group(1))
+        task_match = re.search(r"\btaskId=(\d+)\b", line) or re.search(r"#(\d+)", line)
+        task_id = int(task_match.group(1)) if task_match else None
+
+        if task_id is not None and line_display is not None:
+            return task_id, line_display
+        if fallback_task is None:
+            fallback_task = task_id
+            fallback_display = line_display
+
+    compact = re.sub(r"\s+", " ", text)
+    patterns = (
+        rf"(?:taskId=|#)(\d+).{{0,400}}{re.escape(package)}.{{0,400}}displayId=(\d+)",
+        rf"displayId=(\d+).{{0,400}}(?:taskId=|#)(\d+).{{0,400}}{re.escape(package)}",
+        rf"displayId=(\d+).{{0,400}}{re.escape(package)}.{{0,400}}(?:taskId=|#)(\d+)",
+    )
+    for index, pattern in enumerate(patterns):
+        match = re.search(pattern, compact)
+        if not match:
+            continue
+        first = int(match.group(1))
+        second = int(match.group(2))
+        if index == 0:
+            return first, second
+        return second, first
+    return fallback_task, fallback_display
+
+
+def _get_package_task_display(serial, package, timeout=5) -> Tuple[Optional[int], Optional[int]]:
+    try:
+        for args in (
+            ["shell", "dumpsys", "activity", "activities"],
+            ["shell", "dumpsys", "activity", "recents"],
+        ):
+            completed = _run_adb(serial, args, timeout=timeout)
+            if completed.returncode != 0:
+                continue
+            task_id, display_id = _package_task_display_from_text(completed.stdout, package)
+            if task_id is not None or display_id is not None:
+                return task_id, display_id
+    except Exception:
+        return None, None
+    return None, None
+
+
+def _move_android_task_to_display(serial, task_id, display_id=0, timeout=5):
+    if task_id is None:
+        return False
+    commands = (
+        ["shell", "cmd", "activity", "move-task-to-display", str(task_id), str(display_id)],
+        ["shell", "am", "display", "move-task", str(task_id), str(display_id)],
+    )
+    for args in commands:
+        try:
+            completed = _run_adb(serial, args, timeout=timeout)
+            if completed.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _get_foreground_package(serial, timeout=5):
@@ -220,16 +300,54 @@ def _get_foreground_package(serial, timeout=5):
     return ""
 
 
-def _start_android_app(serial, package, timeout=8):
+def _start_android_app(serial, package, timeout=8, display_id=0):
+    attempts = []
+    if display_id is not None:
+        args = ["shell", "monkey"]
+        args.extend(["--display", str(display_id)])
+        args.extend(["-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
+        attempts.append(args)
+    attempts.append(["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
+    for args in attempts:
+        try:
+            completed = _run_adb(serial, args, timeout=timeout)
+            if completed.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _start_android_app_on_display(serial, package, display_id=0, timeout=8):
     try:
         completed = _run_adb(
             serial,
-            ["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"],
+            [
+                "shell",
+                "cmd",
+                "package",
+                "resolve-activity",
+                "--brief",
+                package,
+            ],
             timeout=timeout,
         )
-        return completed.returncode == 0
+        component = ""
+        for line in completed.stdout.splitlines():
+            stripped = line.strip()
+            if "/" in stripped and not stripped.startswith("priority="):
+                component = stripped
+        if component:
+            completed = _run_adb(
+                serial,
+                ["shell", "am", "start", "--display", str(display_id), "-n", component],
+                timeout=timeout,
+            )
+            if completed.returncode == 0:
+                return True
     except Exception:
-        return False
+        pass
+    return _start_android_app(serial, package, timeout=timeout, display_id=display_id)
 
 
 def _stop_android_app(serial, package, timeout=8):
@@ -452,7 +570,6 @@ class WindowController:
             self.scrcpy_bitrate = int(general_config.get("scrcpy_bitrate", 3000000))
             if self.scrcpy_bitrate <= 0:
                 self.scrcpy_bitrate = 3000000
-            self.capture_fallback_level = 0
             self.selected_emulator = selected_emulator
             self.configured_port = configured_port
             self.configured_serial = f"127.0.0.1:{configured_port}" if configured_port else ""
@@ -515,6 +632,7 @@ class WindowController:
             print(f"Connected to {selected_emulator}: {self.device.serial}")
             self.connected_serial = self.device.serial
             self.sync_restart_target_to_connected_device()
+            self.ensure_brawl_stars_on_primary_display(log_only=True)
 
             self.frame_lock = threading.Lock()
             self.scrcpy_client = None
@@ -780,6 +898,7 @@ class WindowController:
     def start_scrcpy_client(self):
         if not self.ensure_emulator_online():
             raise ConnectionError("ADB device is offline; waiting for emulator cooldown before retrying.")
+        self.ensure_brawl_stars_on_primary_display(log_only=True)
         self.scrcpy_generation += 1
         generation = self.scrcpy_generation
 
@@ -873,38 +992,6 @@ class WindowController:
             time.sleep(0.1)
         return False
 
-    def reduce_capture_load_for_slow_feed(self):
-        """Lower scrcpy load when the emulator can barely deliver frames.
-
-        This keeps the bot playable on machines where the emulator renderer is
-        the bottleneck. It does not change user config files; it only affects
-        the current run.
-        """
-        previous = (self.scrcpy_max_width, self.scrcpy_max_fps, self.scrcpy_bitrate)
-        if self.capture_fallback_level == 0:
-            self.scrcpy_max_width = min(self.scrcpy_max_width or 960, 854)
-            self.scrcpy_max_fps = min(self.scrcpy_max_fps or 60, 30)
-            self.scrcpy_bitrate = min(self.scrcpy_bitrate or 3000000, 2000000)
-            self.capture_fallback_level = 1
-        elif self.capture_fallback_level == 1:
-            self.scrcpy_max_width = min(self.scrcpy_max_width or 854, 720)
-            self.scrcpy_max_fps = min(self.scrcpy_max_fps or 30, 30)
-            self.scrcpy_bitrate = min(self.scrcpy_bitrate or 2000000, 1500000)
-            self.capture_fallback_level = 2
-        else:
-            return False
-
-        current = (self.scrcpy_max_width, self.scrcpy_max_fps, self.scrcpy_bitrate)
-        if current == previous:
-            return False
-        print(
-            "Slow emulator feed fallback:",
-            f"scrcpy_max_width={self.scrcpy_max_width}",
-            f"scrcpy_max_fps={self.scrcpy_max_fps}",
-            f"scrcpy_bitrate={self.scrcpy_bitrate}",
-        )
-        return True
-
     def get_latest_frame(self):
         with self.frame_lock:
             if self.last_frame is None:
@@ -914,6 +1001,51 @@ class WindowController:
     def get_latest_frame_id(self):
         with self.frame_lock:
             return self.frame_id
+
+    def ensure_brawl_stars_on_primary_display(self, log_only=False):
+        task_id, display_id = _get_package_task_display(
+            self.connected_serial,
+            self.brawl_stars_package,
+            timeout=4,
+        )
+        if display_id is None:
+            return True
+        if display_id == 0:
+            return True
+
+        print(
+            f"Brawl Stars is on Android displayId={display_id}; "
+            "moving it back to displayId=0 for scrcpy capture."
+        )
+        moved = _move_android_task_to_display(self.connected_serial, task_id, 0)
+        if not moved:
+            moved = _start_android_app_on_display(
+                self.connected_serial,
+                self.brawl_stars_package,
+                display_id=0,
+            )
+        time.sleep(1)
+        _task_id, new_display_id = _get_package_task_display(
+            self.connected_serial,
+            self.brawl_stars_package,
+            timeout=4,
+        )
+        if new_display_id == 0:
+            return True
+        if log_only:
+            print("Could not verify Brawl Stars on displayId=0 yet; continuing startup.")
+            return False
+        print("Brawl Stars did not move to displayId=0; restarting the app on displayId=0.")
+        try:
+            _stop_android_app(self.connected_serial, self.brawl_stars_package)
+        except Exception:
+            pass
+        time.sleep(0.5)
+        return _start_android_app_on_display(
+            self.connected_serial,
+            self.brawl_stars_package,
+            display_id=0,
+        )
 
     def restart_brawl_stars(self):
         if not self.ensure_emulator_online():
@@ -932,15 +1064,16 @@ class WindowController:
                 return False
         time.sleep(1)
         try:
-            if not _start_android_app(self.connected_serial, self.brawl_stars_package):
+            if not _start_android_app_on_display(self.connected_serial, self.brawl_stars_package, display_id=0):
                 self.device.app_start(self.brawl_stars_package)
         except Exception as e:
             print(f"Could not start Brawl Stars because ADB is offline: {e}")
             if not self.restart_emulator_profile():
                 return False
-            if not _start_android_app(self.connected_serial, self.brawl_stars_package):
+            if not _start_android_app_on_display(self.connected_serial, self.brawl_stars_package, display_id=0):
                 self.device.app_start(self.brawl_stars_package)
         time.sleep(3)
+        self.ensure_brawl_stars_on_primary_display()
         self.time_since_checked_if_brawl_stars_crashed = time.time()
         self.foreground_check_failures = 0
         print("Brawl stars restarted successfully.")
@@ -977,14 +1110,16 @@ class WindowController:
                 self.foreground_check_failures = 0
                 print(f"Brawl stars has crashed, {opened_app} is the app opened ! Restarting...")
                 try:
-                    if not _start_android_app(self.connected_serial, self.brawl_stars_package):
+                    if not _start_android_app_on_display(self.connected_serial, self.brawl_stars_package, display_id=0):
                         self.device.app_start(self.brawl_stars_package)
                 except Exception as e:
                     print(f"Could not start Brawl Stars, restarting emulator profile: {e}")
                     self.restart_emulator_profile()
                 time.sleep(3)
+                self.ensure_brawl_stars_on_primary_display()
                 self.time_since_checked_if_brawl_stars_crashed = time.time()
             else:
+                self.ensure_brawl_stars_on_primary_display(log_only=True)
                 self.foreground_check_failures = 0
                 self.time_since_checked_if_brawl_stars_crashed = c_time
         frame, frame_time = self.get_latest_frame()
