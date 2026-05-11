@@ -243,7 +243,7 @@ def extract_text_strings(image_input):
     return [str(result[1]).lower() for result in get_ocr_reader().readtext(image_input)]
 
 
-cfg_api_base_url = load_toml_as_dict("cfg/general_config.toml")["api_base_url"]
+cfg_api_base_url = load_toml_as_dict("cfg/general_config.toml").get("api_base_url", "default")
 api_base_url = cfg_api_base_url if cfg_api_base_url != "default" else "localhost"
 brawlers_info_file_path = "cfg/brawlers_info.json"
 
