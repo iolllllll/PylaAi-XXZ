@@ -79,6 +79,17 @@ class LongRunWatchdogTests(unittest.TestCase):
         self.assertFalse(controller.restart_scrcpy_client())
         self.assertEqual(controller.ensure_calls, 2)
 
+    def test_restart_scrcpy_client_requires_fresh_frame(self):
+        controller = object.__new__(WindowController)
+        controller.scrcpy_client = None
+        controller.scrcpy_generation = 0
+        controller.ensure_emulator_online = lambda: True
+        controller.is_emulator_online = lambda: True
+        controller.start_scrcpy_client = lambda: None
+        controller.wait_for_fresh_frame = lambda timeout=6.0: False
+
+        self.assertFalse(controller.restart_scrcpy_client())
+
 
 if __name__ == "__main__":
     unittest.main()

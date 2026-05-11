@@ -851,6 +851,9 @@ class WindowController:
         time.sleep(0.4)
         try:
             self.start_scrcpy_client()
+            if not self.wait_for_fresh_frame(timeout=6.0):
+                print("Scrcpy restarted but no fresh frame arrived within 6s.")
+                return False
         except Exception as e:
             print(f"Could not restart scrcpy client: {e}")
             if not self.is_emulator_online():
@@ -859,6 +862,16 @@ class WindowController:
             return False
         print("Scrcpy client restarted successfully.")
         return True
+
+    def wait_for_fresh_frame(self, timeout=6.0):
+        start_id = self.get_latest_frame_id()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame, frame_time = self.get_latest_frame()
+            if frame is not None and self.get_latest_frame_id() != start_id and time.time() - frame_time <= 1.0:
+                return True
+            time.sleep(0.1)
+        return False
 
     def reduce_capture_load_for_slow_feed(self):
         """Lower scrcpy load when the emulator can barely deliver frames.

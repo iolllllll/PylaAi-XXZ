@@ -832,7 +832,7 @@ def pyla_main(data):
             self.last_stale_feed_recovery = now
             self.stale_feed_recovery_attempts += 1
 
-            if self.stale_feed_recovery_attempts >= 3 or stale_age > 45:
+            if self.stale_feed_recovery_attempts >= 2 or stale_age > 30:
                 print("Scrcpy feed is still frozen; restarting Brawl Stars and scrcpy.")
                 if self.restart_brawl_stars():
                     self.stale_feed_recovery_attempts = 0
