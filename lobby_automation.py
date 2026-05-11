@@ -22,6 +22,53 @@ class LobbyAutomation:
         self.coords_cfg = load_toml_as_dict("./cfg/lobby_config.toml")
         self.window_controller = window_controller
 
+    def _read_state(self):
+        try:
+            screenshot = self.window_controller.screenshot()
+            if screenshot is None:
+                return None
+            return get_state(screenshot)
+        except Exception as e:
+            if debug:
+                print(f"Could not read state while opening brawler menu: {e}")
+            return None
+
+    def open_brawler_selection(self, attempts=3):
+        wr = self.window_controller.width_ratio
+        hr = self.window_controller.height_ratio
+        # Keep this click in the left-side BRAWLERS button band. Lower lobby
+        # buttons can open the pass/event panels and make first-pick silently fail.
+        brawler_button_points = ((128, 500), (110, 490), (145, 505))
+
+        state = self._read_state()
+        if state == "brawler_selection":
+            return True
+
+        for attempt in range(attempts):
+            if state == "shop":
+                print("Brawler menu click opened a lobby panel; backing out and retrying Brawlers.")
+                self.press_back()
+                time.sleep(0.8)
+                state = self._read_state()
+                if state == "brawler_selection":
+                    return True
+
+            x, y = brawler_button_points[min(attempt, len(brawler_button_points) - 1)]
+            self.window_controller.click(int(x * wr), int(y * hr))
+            time.sleep(0.8)
+
+            state = self._read_state()
+            if state == "brawler_selection":
+                return True
+            if state == "shop":
+                continue
+            if state is None:
+                # Some tests/controllers cannot provide a state image here. Let
+                # the OCR loop continue instead of failing selection up front.
+                return True
+
+        return False
+
     def check_for_idle(self, frame):
         general_config = load_toml_as_dict("cfg/general_config.toml")
         bot_config = load_toml_as_dict("./cfg/bot_config.toml")
@@ -52,9 +99,8 @@ class LobbyAutomation:
         ocr_scale = max(0.35, min(1.0, ocr_scale))
         target_key = self.normalize_ocr_name(brawler)
 
-        x, y = self.coords_cfg['lobby']['brawler_btn'][0]*wr, self.coords_cfg['lobby']['brawler_btn'][1]*hr
-        self.window_controller.click(x, y)
-        time.sleep(0.6)
+        if not self.open_brawler_selection():
+            raise RuntimeError("Could not open brawler selection menu without landing in another lobby panel.")
         c = 0
         found_brawler = False
         for i in range(50):

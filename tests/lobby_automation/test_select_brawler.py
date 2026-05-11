@@ -58,5 +58,39 @@ class TestLobbyAutomation(unittest.TestCase):
         )
 
 
+class DummyBrawlerMenuController:
+    width_ratio = 1.0
+    height_ratio = 1.0
+
+    def __init__(self):
+        self.clicks = []
+        self.back_presses = 0
+
+    def click(self, x, y):
+        self.clicks.append((x, y))
+
+    def android_back(self):
+        self.back_presses += 1
+        return True
+
+    def screenshot(self):
+        return np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+
+class TestOpenBrawlerSelection(unittest.TestCase):
+    @patch("lobby_automation.time.sleep", return_value=None)
+    @patch("lobby_automation.get_state", side_effect=["lobby", "shop", "lobby", "brawler_selection"])
+    def test_retries_when_brawler_button_opens_lobby_panel(self, *_):
+        automation = object.__new__(LobbyAutomation)
+        automation.window_controller = DummyBrawlerMenuController()
+
+        self.assertTrue(automation.open_brawler_selection())
+
+        self.assertEqual(automation.window_controller.back_presses, 1)
+        first_click = automation.window_controller.clicks[0]
+        self.assertLess(first_click[1], 650)
+        self.assertEqual(first_click, (128, 500))
+
+
 if __name__ == "__main__":
     unittest.main()
