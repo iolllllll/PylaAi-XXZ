@@ -54,18 +54,22 @@ def _build_providers(preferred_device):
     available_providers = set(ort.get_available_providers())
     providers = []
 
+    if preferred_device in ("gpu", "auto", "directml", "dml"):
+        if "DmlExecutionProvider" in available_providers:
+            providers.append(_directml_provider())
+
     if preferred_device in ("gpu", "auto", "cuda"):
         if "CUDAExecutionProvider" in available_providers:
-            providers.append((
+            cuda_provider = (
                 "CUDAExecutionProvider",
                 {
                     "cudnn_conv_algo_search": "DEFAULT",
                 },
-            ))
-
-    if preferred_device in ("gpu", "auto", "directml", "dml"):
-        if "DmlExecutionProvider" in available_providers and not providers:
-            providers.append(_directml_provider())
+            )
+            if preferred_device == "cuda":
+                providers.insert(0, cuda_provider)
+            elif not providers:
+                providers.append(cuda_provider)
 
     if preferred_device in ("gpu", "auto", "openvino"):
         if "OpenVINOExecutionProvider" in available_providers and not providers:

@@ -179,7 +179,7 @@ class DefaultEasyOCR:
     def __init__(self):
         import easyocr
 
-        self.reader = easyocr.Reader(['en'], verbose=False)
+        self.reader = easyocr.Reader(['en'], verbose=False, gpu=False)
 
     def readtext(self, image_input):
         return self.reader.readtext(image_input)
