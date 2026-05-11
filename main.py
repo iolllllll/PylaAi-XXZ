@@ -713,6 +713,8 @@ def pyla_main(data):
                 elif previous_state != "match" and state == "match":
                     self.Play.reset_match_control_state()
                     self.match_ready_at = time.time() + self.match_warmup_seconds
+                    if previous_state in {"lobby", "match_making"}:
+                        self.Stage_manager.reset_prestige_reward_gate()
                 frame_data = None
                 self.Stage_manager.do_state(state, frame_data)
                 if state == "lobby":

@@ -7,6 +7,7 @@ from stage_manager import StageManager
 from state_finder import (
     get_in_game_state,
     get_skin_reward_continue_button_center,
+    get_skin_reward_equip_button_center,
     is_in_reward_unlock,
 )
 
@@ -83,6 +84,18 @@ class RewardUnlockTests(unittest.TestCase):
         image[890:950, 975:1215] = (245, 245, 245)
         return image
 
+    @staticmethod
+    def draw_skin_reward_equip_screen():
+        image = RewardUnlockTests.draw_skin_reward_screen()
+        green = cv2.cvtColor(
+            np.full((1, 1, 3), (58, 230, 210), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        image[850:1000, 1330:1850] = (5, 5, 5)
+        image[850:975, 1330:1850] = green
+        image[890:950, 1420:1765] = (245, 245, 245)
+        return image
+
     def test_reward_unlock_detector_accepts_blue_unlocked_screen(self):
         image = self.draw_reward_unlock_screen()
 
@@ -115,6 +128,20 @@ class RewardUnlockTests(unittest.TestCase):
 
         self.assertIn(list("wasd"), manager.window_controller.keys_released)
         self.assertEqual(manager.window_controller.clicks, [(1095, 925)])
+        self.assertEqual(manager.window_controller.presses, [])
+
+    def test_skin_reward_handler_clicks_equip_now_before_continue(self):
+        image_bgr = self.draw_skin_reward_equip_screen()
+        screenshot_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        manager = object.__new__(StageManager)
+        manager.window_controller = DummyWindowController(screenshot_rgb)
+
+        manager.handle_trophy_reward()
+
+        self.assertTrue(is_in_reward_unlock(image_bgr))
+        self.assertEqual(get_skin_reward_equip_button_center(image_bgr), (1590, 920))
+        self.assertIn(list("wasd"), manager.window_controller.keys_released)
+        self.assertEqual(manager.window_controller.clicks, [(1590, 920)])
         self.assertEqual(manager.window_controller.presses, [])
 
 

@@ -616,9 +616,29 @@ def get_skin_reward_continue_button_center(image):
     return int((x + w / 2) * width_ratio), int((y + h / 2) * height_ratio)
 
 
+def get_skin_reward_equip_button_center(image):
+    button_region = [1330, 830, 520, 180]
+    crop = crop_scaled_region(image, button_region)
+    if crop.size == 0:
+        return None
+
+    green_ratio = mask_ratio(crop, (45, 80, 100), (82, 255, 255))
+    white_ratio = mask_ratio(crop, (0, 0, 170), (179, 90, 255))
+    dark_ratio = mask_ratio(crop, (0, 0, 0), (179, 255, 85))
+    if green_ratio < 0.24 or white_ratio < 0.02 or dark_ratio < 0.05:
+        return None
+
+    current_height, current_width = image.shape[:2]
+    width_ratio = current_width / orig_screen_width
+    height_ratio = current_height / orig_screen_height
+    x, y, w, h = button_region
+    return int((x + w / 2) * width_ratio), int((y + h / 2) * height_ratio)
+
+
 def is_in_skin_reward_unlock(image):
     continue_center = get_skin_reward_continue_button_center(image)
-    if continue_center is None:
+    equip_center = get_skin_reward_equip_button_center(image)
+    if continue_center is None and equip_center is None:
         return False
 
     background = crop_scaled_region(image, [0, 0, 1920, 1080])
@@ -628,12 +648,13 @@ def is_in_skin_reward_unlock(image):
         return False
 
     pink_ratio = mask_ratio(background, (138, 55, 90), (176, 255, 255))
+    cyan_ratio = mask_ratio(background, (85, 45, 90), (105, 255, 255))
     green_ratio = mask_ratio(title, (45, 90, 110), (82, 255, 255))
     white_ratio = mask_ratio(title, (0, 0, 170), (179, 95, 255))
     header_white = mask_ratio(header, (0, 0, 175), (179, 90, 255))
     header_dark = mask_ratio(header, (0, 0, 0), (179, 255, 75))
     return (
-            pink_ratio > 0.28
+            (pink_ratio > 0.28 or cyan_ratio > 0.20)
             and green_ratio > 0.06
             and white_ratio > 0.05
             and header_white > 0.045

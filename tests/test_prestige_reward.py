@@ -151,6 +151,7 @@ class PrestigeRewardTests(unittest.TestCase):
         ]
         manager.Trophy_observer = DummyTrophyObserver()
         manager.Trophy_observer.current_trophies = 1000
+        manager.last_match_crossed_1000 = True
         manager.Lobby_automation = DummyLobbyAutomation()
         manager.window_controller = DummyWindowController()
         screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
@@ -175,6 +176,7 @@ class PrestigeRewardTests(unittest.TestCase):
         ]
         manager.Trophy_observer = DummyTrophyObserver()
         manager.Trophy_observer.current_trophies = 1000
+        manager.last_match_crossed_1000 = True
         manager.Lobby_automation = DummyLobbyAutomation()
         manager.window_controller = DummyWindowController()
         screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
@@ -198,6 +200,7 @@ class PrestigeRewardTests(unittest.TestCase):
         ]
         manager.Trophy_observer = DummyTrophyObserver()
         manager.Trophy_observer.current_trophies = 1000
+        manager.last_match_crossed_1000 = True
         manager.Lobby_automation = DummyLobbyAutomation()
         manager.window_controller = DummyWindowController()
         manager.stop_after_post_match_rewards = False
@@ -218,6 +221,22 @@ class PrestigeRewardTests(unittest.TestCase):
         manager = object.__new__(StageManager)
         manager.Trophy_observer = DummyTrophyObserver()
         manager.brawlers_pick_data = [{"type": "trophies", "push_until": 1000, "trophies": 999}]
+        manager.window_controller = DummyWindowController()
+        screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.draw_prestige_screen(screenshot_bgr, button_box=(1140, 840, 280, 105))
+        manager.window_controller.screenshot = lambda: cv2.cvtColor(screenshot_bgr, cv2.COLOR_BGR2RGB)
+
+        manager.handle_prestige_reward()
+
+        self.assertEqual(manager.window_controller.clicks, [])
+        self.assertEqual(manager.window_controller.presses, [])
+
+    def test_prestige_reward_handler_requires_last_match_to_cross_1000(self):
+        manager = object.__new__(StageManager)
+        manager.Trophy_observer = DummyTrophyObserver()
+        manager.Trophy_observer.current_trophies = 1000
+        manager.last_match_crossed_1000 = False
+        manager.brawlers_pick_data = [{"type": "trophies", "push_until": 1000, "trophies": 1000}]
         manager.window_controller = DummyWindowController()
         screenshot_bgr = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.draw_prestige_screen(screenshot_bgr, button_box=(1140, 840, 280, 105))

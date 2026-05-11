@@ -14,6 +14,7 @@ from state_finder import (
     get_prestige_next_button_center,
     get_team_invite_reject_button_center,
     get_star_drop_type,
+    get_skin_reward_equip_button_center,
     get_skin_reward_continue_button_center,
 )
 from trophy_observer import TrophyObserver
@@ -66,6 +67,10 @@ class StageManager:
         self.last_recorded_result_time = 0.0
         self.last_recorded_result = None
         self.active_end_result = None
+        self.last_match_trophy_before = None
+        self.last_match_trophy_after = None
+        self.last_match_trophy_delta = 0
+        self.last_match_crossed_1000 = False
         self.stop_after_post_match_rewards = False
         self.completion_notification_sent = False
         time_thresholds = load_toml_as_dict("./cfg/time_tresholds.toml")
@@ -90,7 +95,7 @@ class StageManager:
             'daily_star_drop': self.handle_star_drop,
             'nova_star_drop': self.handle_star_drop,
             'prestige_reward': self.handle_prestige_reward,
-            'trophy_reward': lambda: self.window_controller.press_key("Q"),
+            'trophy_reward': self.handle_trophy_reward,
             'reward_unlock': self.handle_reward_unlock,
         }
 
@@ -112,7 +117,17 @@ class StageManager:
             getattr(self.Trophy_observer, "current_trophies", current.get("trophies", 0)),
             0,
         )
-        return target == 1000 and trophies >= 1000
+        return (
+                target == 1000
+                and trophies >= 1000
+                and getattr(self, "last_match_crossed_1000", False)
+        )
+
+    def reset_prestige_reward_gate(self):
+        self.last_match_trophy_before = None
+        self.last_match_trophy_after = None
+        self.last_match_trophy_delta = 0
+        self.last_match_crossed_1000 = False
 
     def dismiss_end_screen(self, use_play_again=False):
         self.window_controller.keys_up(list("wasd"))
@@ -655,21 +670,38 @@ class StageManager:
                 self.window_controller.click(x, y, delay=0.04)
                 time.sleep(0.08)
 
-    def handle_reward_unlock(self):
+    def click_skin_reward_button(self):
         screenshot = self.window_controller.screenshot()
         screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
+        equip_center = get_skin_reward_equip_button_center(screenshot_bgr)
+        if equip_center is not None:
+            print("Skin reward unlock detected; clicking EQUIP NOW.")
+            self.window_controller.keys_up(list("wasd"))
+            self.window_controller.click(*equip_center, delay=0.08)
+            return True
+
         continue_center = get_skin_reward_continue_button_center(screenshot_bgr)
-        self.window_controller.keys_up(list("wasd"))
         if continue_center is not None:
             print("Skin reward unlock detected; clicking CONTINUE.")
+            self.window_controller.keys_up(list("wasd"))
             self.window_controller.click(*continue_center, delay=0.08)
+            return True
+        return False
+
+    def handle_trophy_reward(self):
+        if self.click_skin_reward_button():
+            return
+        self.window_controller.press_key("Q")
+
+    def handle_reward_unlock(self):
+        if self.click_skin_reward_button():
             return
         print("Reward unlock detected; pressing continue.")
         self.window_controller.press_key("Q")
 
     def handle_prestige_reward(self):
         if not self.can_current_brawler_have_prestige_reward():
-            print("Prestige reward ignored; current brawler is not on a 1000 trophy prestige target.")
+            print("Prestige reward ignored; last match did not increase trophies across the 1000 trophy prestige target.")
             return
         screenshot = self.window_controller.screenshot()
         screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
@@ -729,8 +761,20 @@ class StageManager:
             if not stats_recorded:
                 found_game_result = current_state.split("_")[1]
                 current_brawler = self.brawlers_pick_data[0]['brawler']
+                trophies_before = self._number_or_default(
+                    getattr(self.Trophy_observer, "current_trophies", 0),
+                    0,
+                )
                 self.Trophy_observer.add_trophies(found_game_result, current_brawler)
                 self.Trophy_observer.add_win(found_game_result)
+                trophies_after = self._number_or_default(
+                    getattr(self.Trophy_observer, "current_trophies", trophies_before),
+                    trophies_before,
+                )
+                self.last_match_trophy_before = trophies_before
+                self.last_match_trophy_after = trophies_after
+                self.last_match_trophy_delta = trophies_after - trophies_before
+                self.last_match_crossed_1000 = trophies_before < 1000 <= trophies_after and trophies_after > trophies_before
                 self.adaptive_brain.record_result(found_game_result)
                 self.time_since_last_stat_change = time.time()
                 self.last_recorded_result = found_game_result
