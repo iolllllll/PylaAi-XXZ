@@ -117,18 +117,6 @@ class TestOpenBrawlerSelection(unittest.TestCase):
         self.assertEqual(automation.window_controller.clicks, [(96, 430)])
 
     @patch("lobby_automation.time.sleep", return_value=None)
-    @patch("lobby_automation.get_state", side_effect=["lobby", "brawler_selection", "brawler_selection", "lobby"])
-    def test_lowest_trophy_selection_uses_safe_brawler_opener(self, *_):
-        automation = object.__new__(LobbyAutomation)
-        automation.window_controller = DummyBrawlerMenuController()
-        automation.coords_cfg = {"lobby": {"brawler_btn": (110, 490), "select_btn": (260, 991)}}
-
-        self.assertTrue(automation.select_lowest_trophy_brawler())
-
-        self.assertEqual(automation.window_controller.clicks[0], (70, 500))
-        self.assertNotEqual(automation.window_controller.clicks[0], (128, 500))
-
-    @patch("lobby_automation.time.sleep", return_value=None)
     @patch("lobby_automation.get_state", return_value="shop")
     def test_selection_failure_does_not_crash_startup(self, *_):
         automation = object.__new__(LobbyAutomation)

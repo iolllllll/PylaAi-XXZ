@@ -106,38 +106,6 @@ class PushAll1kSelectionTest(unittest.TestCase):
                     self.assertFalse(data[0]["automatically_pick"])
                     self.assertTrue(all(row["automatically_pick"] for row in data[1:]))
 
-    def test_push_all_falls_back_to_startup_picker_when_quick_select_fails(self):
-        obj = object.__new__(SelectBrawler)
-        obj._closing = False
-        obj.app = type("DummyApp", (), {
-            "withdraw": lambda self: None,
-            "update_idletasks": lambda self: None,
-            "update": lambda self: None,
-            "deiconify": lambda self: None,
-        })()
-        obj.brawlers_data = []
-        obj.get_push_all_data = lambda target: [
-            {
-                "brawler": "mandy",
-                "push_until": target,
-                "trophies": 753,
-                "wins": 0,
-                "type": "trophies",
-                "automatically_pick": False,
-                "selection_method": "lowest_trophies",
-                "win_streak": 0,
-            }
-        ]
-        obj.quick_select_least_trophies_brawler = lambda: ("emulator-5554", None)
-        started = []
-        obj.start_bot = lambda: started.append(list(obj.brawlers_data))
-
-        SelectBrawler.push_all(obj, 1000)
-
-        self.assertTrue(started)
-        self.assertTrue(started[0][0]["automatically_pick"])
-        self.assertEqual(started[0][0]["brawler"], "mandy")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,6 @@ from utils import (
 from tkinter import filedialog
 
 from gui.main import install_tk_background_error_filter
-from state_finder import get_state
 
 orig_screen_width, orig_screen_height = 1920, 1080
 width, height = pyautogui.size()
@@ -454,54 +453,8 @@ class SelectBrawler:
             device.shell(f"input tap {int(x * wr)} {int(y * hr)}")
             time.sleep(wait)
 
-        def screenshot_state():
-            try:
-                screenshot = device.screenshot()
-                frame = np.array(screenshot)
-                if frame.ndim == 3 and frame.shape[2] == 4:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
-                return get_state(frame)
-            except Exception:
-                return None
-
-        def open_brawler_screen():
-            if screenshot_state() == "brawler_selection":
-                return True
-            brawler_button_points = (
-                (70, 500),
-                (90, 500),
-                (110, 490),
-                (128, 500),
-                (60, 535),
-                (145, 505),
-                (76, 420),
-                (98, 420),
-                (122, 420),
-                (72, 455),
-                (100, 455),
-                (132, 455),
-                (82, 385),
-                (112, 385),
-            )
-            for x, y in brawler_button_points:
-                tap(x, y, 0.8)
-                state = screenshot_state()
-                if state == "brawler_selection":
-                    return True
-                if state == "shop":
-                    device.shell("input keyevent 4")
-                    time.sleep(0.8)
-            for _ in range(2):
-                if screenshot_state() == "lobby":
-                    break
-                device.shell("input keyevent 4")
-                time.sleep(0.6)
-            return False
-
         print(f"Push All using ADB device: {device.serial}")
-        if not open_brawler_screen():
-            print("Push All could not open Brawlers screen; normal startup picker will select the API brawler.")
-            return device.serial, None
+        tap(128, 500, 1.4)   # left Brawlers button in lobby
         tap(1210, 45, 0.6)   # sort dropdown
         tap(1210, 426, 1.0)  # Least Trophies
         selected_brawler = self.detect_first_sorted_brawler(device)
@@ -572,8 +525,6 @@ class SelectBrawler:
             selected_serial, selected_brawler = self.quick_select_least_trophies_brawler()
             if selected_brawler:
                 data = self._move_brawler_to_front(data, selected_brawler)
-            else:
-                data[0]["automatically_pick"] = True
             print(f"Push All {target_trophies} first brawler:", data[0])
             self.brawlers_data = data
             self.start_bot()
