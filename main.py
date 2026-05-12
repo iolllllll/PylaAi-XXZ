@@ -82,6 +82,14 @@ MATCH_RESULT_STATES = {
 }
 
 
+def config_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def normalize_detected_state(
         detected_state,
         previous_state=None,
@@ -165,6 +173,23 @@ def pyla_main(data):
             self.last_ignored_star_drop_state_time = 0.0
             general_config = load_toml_as_dict("cfg/general_config.toml")
             self.max_ips = parse_max_ips(general_config.get('max_ips', 0))
+            self.duplicate_frame_replay_enabled = config_bool(
+                general_config.get("duplicate_frame_replay_enabled", "yes"),
+                True,
+            )
+            self.duplicate_frame_replay_max_ips = parse_max_ips(
+                general_config.get("duplicate_frame_replay_max_ips", 15)
+            ) or 15
+            if self.max_ips:
+                self.duplicate_frame_replay_max_ips = min(self.duplicate_frame_replay_max_ips, self.max_ips)
+            self.duplicate_frame_replay_max_age = float(
+                general_config.get("duplicate_frame_replay_max_age_seconds", 0.35)
+            )
+            self.duplicate_frame_replay_play_avg_limit = float(
+                general_config.get("duplicate_frame_replay_play_avg_limit", 0.18)
+            )
+            self.last_duplicate_frame_replay = 0.0
+            self.perf_duplicate_frame_replays = 0
             print(
                 "Performance config:",
                 f"max_ips={self.max_ips if self.max_ips is not None else 'unlimited'}",
@@ -360,12 +385,15 @@ def pyla_main(data):
             _, last_frame_time = self.window_controller.get_latest_frame()
             frame_age = time.time() - last_frame_time if last_frame_time else 0
             duplicate_waits = self.perf_duplicate_waits
+            duplicate_replays = self.perf_duplicate_frame_replays
             self.perf_duplicate_waits = 0
+            self.perf_duplicate_frame_replays = 0
             print(
                 "Low IPS detail:",
                 f"bot_ips={current_ips:.2f}",
                 f"feed_fps={self.perf_feed_fps:.2f}",
                 f"duplicate_waits={duplicate_waits}",
+                f"duplicate_replays={duplicate_replays}",
                 f"frame_age={frame_age:.1f}s",
                 f"screenshot_avg={self.perf_screenshot_ema or 0:.3f}s",
                 f"state_avg={self.perf_state_ema or 0:.3f}s",
@@ -423,6 +451,39 @@ def pyla_main(data):
             self.perf_duplicate_waits = 0
             self.low_feed_since = now
             return True
+
+        def should_replay_duplicate_frame(self, frame_time):
+            if not self.duplicate_frame_replay_enabled:
+                return False
+            if self.state != "match":
+                return False
+            if self.was_paused:
+                return False
+            if not frame_time:
+                return False
+            if time.time() - frame_time > self.duplicate_frame_replay_max_age:
+                return False
+            if (self.perf_play_ema or 0) > self.duplicate_frame_replay_play_avg_limit:
+                return False
+            follow_mode_active = (
+                getattr(self.Play, "showdown_playstyle_mode", "").strip().lower()
+                in ("follow", "follower", "team", "teammate", "teammates")
+            )
+            if time.time() < self.match_ready_at and not follow_mode_active:
+                return False
+            min_interval = 1 / max(1, self.duplicate_frame_replay_max_ips)
+            return time.time() - self.last_duplicate_frame_replay >= min_interval
+
+        def replay_duplicate_match_frame(self, frame):
+            self.last_duplicate_frame_replay = time.time()
+            brawler = self.Stage_manager.brawlers_pick_data[0]['brawler']
+            play_start = time.perf_counter()
+            self.Play.main(frame, brawler, self)
+            self.perf_play_ema = self.update_ema(
+                self.perf_play_ema,
+                time.perf_counter() - play_start,
+            )
+            self.perf_duplicate_frame_replays += 1
 
         def recover_low_ips(self, current_ips):
             now = time.time()
@@ -934,6 +995,11 @@ def pyla_main(data):
                 self.record_new_frame_for_perf(frame_id)
                 if frame_id == self.last_processed_frame_id:
                     self.perf_duplicate_waits += 1
+                    if self.should_replay_duplicate_frame(last_ft):
+                        self.replay_duplicate_match_frame(frame)
+                        c += 1
+                        self.recover_slow_feed()
+                        continue
                     self.recover_slow_feed()
                     time.sleep(0.01)
                     continue

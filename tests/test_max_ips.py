@@ -1,6 +1,6 @@
 import unittest
 
-from main import parse_max_ips
+from main import config_bool, parse_max_ips
 
 
 class MaxIpsTest(unittest.TestCase):
@@ -17,6 +17,12 @@ class MaxIpsTest(unittest.TestCase):
         self.assertIsNone(parse_max_ips("auto"))
         self.assertIsNone(parse_max_ips(""))
         self.assertIsNone(parse_max_ips(None))
+
+    def test_config_bool_accepts_common_enabled_values(self):
+        self.assertTrue(config_bool("yes"))
+        self.assertTrue(config_bool("1"))
+        self.assertFalse(config_bool("no"))
+        self.assertTrue(config_bool(None, default=True))
 
 
 if __name__ == "__main__":
