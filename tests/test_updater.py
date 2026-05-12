@@ -13,6 +13,7 @@ from tools.updater import (
     restore_preserved_files,
     write_local_update_info,
 )
+from tools.downgrader import previous_ref
 
 
 class UpdaterTest(unittest.TestCase):
@@ -27,6 +28,11 @@ class UpdaterTest(unittest.TestCase):
 
         self.assertEqual(url, "https://github.com/xxz-888/PylaAi-XXZ/archive/abc123.zip")
         self.assertEqual(label, "GitHub ref abc123")
+
+    def test_downgrader_previous_ref_chooses_commit_before_latest(self):
+        commits = [{"sha": "latest"}, {"sha": "previous"}, {"sha": "older"}]
+
+        self.assertEqual(previous_ref(commits), "previous")
 
     def test_copy_update_preserves_user_api_config_and_skips_updater_exe(self):
         with tempfile.TemporaryDirectory() as tmp:

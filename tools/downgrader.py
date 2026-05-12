@@ -1,13 +1,23 @@
 import sys
 
-from updater import (
-    app_dir,
-    download_url_for_ref,
-    install_from_zip,
-    recent_commits,
-    resolve_ref_sha,
-    wait_for_enter,
-)
+try:
+    from updater import (
+        app_dir,
+        download_url_for_ref,
+        install_from_zip,
+        recent_commits,
+        resolve_ref_sha,
+        wait_for_enter,
+    )
+except ModuleNotFoundError:
+    from tools.updater import (
+        app_dir,
+        download_url_for_ref,
+        install_from_zip,
+        recent_commits,
+        resolve_ref_sha,
+        wait_for_enter,
+    )
 
 
 def print_recent_versions(limit=12):
@@ -22,15 +32,31 @@ def print_recent_versions(limit=12):
     return commits
 
 
+def previous_ref(commits):
+    if len(commits) >= 2:
+        return str(commits[1].get("sha", "")).strip()
+    if commits:
+        return str(commits[0].get("sha", "")).strip()
+    return ""
+
+
 def selected_ref_from_args_or_prompt(commits):
     if len(sys.argv) > 1:
-        return sys.argv[1].strip()
+        arg = sys.argv[1].strip()
+        if arg in ("--previous", "previous", "prev"):
+            return previous_ref(commits)
+        return arg
 
     print("")
-    print("Type a number from the list, or paste a commit/tag/branch.")
-    print("Press Enter without typing anything to cancel.")
+    fallback_ref = previous_ref(commits)
+    if fallback_ref:
+        print(f"Press Enter to install the previous version: {fallback_ref[:8]}")
+    print("Or type a number from the list, or paste a commit/tag/branch.")
+    print("Type cancel to quit.")
     choice = input("Version to install: ").strip()
     if not choice:
+        return fallback_ref
+    if choice.lower() in ("cancel", "quit", "exit"):
         return ""
     if choice.isdigit():
         index = int(choice)
@@ -42,7 +68,9 @@ def selected_ref_from_args_or_prompt(commits):
 def main() -> int:
     if "--help" in sys.argv or "-h" in sys.argv:
         print("PylaAi-XXZ downgrader")
-        print("Run downgrader.exe and choose a recent version by number.")
+        print("Run downgrader.exe and press Enter to install the version before the latest commit.")
+        print("You can also choose a recent version by number.")
+        print("Fast rollback: downgrader.exe --previous")
         print("Advanced: downgrader.exe <commit/tag/branch>")
         return 0
 
