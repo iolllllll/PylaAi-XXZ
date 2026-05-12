@@ -39,7 +39,8 @@ class LobbyAutomation:
         # Keep these clicks in the left-side BRAWLERS button band. Different
         # emulator scales and event layouts shift the safe center a bit; points
         # that are too low can open the pass/event panels instead.
-        cfg_point = tuple(self.coords_cfg.get("lobby", {}).get("brawler_btn", (110, 490)))
+        coords_cfg = getattr(self, "coords_cfg", {"lobby": {"brawler_btn": (110, 490)}})
+        cfg_point = tuple(coords_cfg.get("lobby", {}).get("brawler_btn", (110, 490)))
         brawler_button_points = (
             (70, 500),
             (90, 500),
@@ -271,7 +272,9 @@ class LobbyAutomation:
             time.sleep(wait)
 
         print("Selecting next brawler by sorting lowest trophies.")
-        tap(128, 500, 1.4)   # left Brawlers button in lobby
+        if not self.open_brawler_selection():
+            print("Could not open Brawlers screen for lowest-trophy selection.")
+            return False
         tap(1210, 45, 0.6)   # sort dropdown
         tap(1210, 426, 1.0)  # Least Trophies
         tap(422, 359, 1.0)   # first brawler card after sorting
