@@ -59,6 +59,7 @@ class UpdaterTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (source / "updater.exe").write_text("new updater", encoding="utf-8")
+            (source / "downgrader.exe").write_text("new downgrader", encoding="utf-8")
             (source / "adb.exe").write_text("new adb", encoding="utf-8")
             (source / "main.py").write_text("new", encoding="utf-8")
             (source / "new_file.py").write_text("added", encoding="utf-8")
@@ -80,6 +81,7 @@ class UpdaterTest(unittest.TestCase):
             self.assertIn('"default": 2', adaptive_state)
             self.assertIn('"user": 1', adaptive_state)
             self.assertEqual((project / "updater.exe").read_text(encoding="utf-8"), "old updater")
+            self.assertEqual((project / "downgrader.exe").read_text(encoding="utf-8"), "new downgrader")
             self.assertFalse((project / "adb.exe").exists())
             self.assertEqual((project / "main.py").read_text(encoding="utf-8"), "new")
             self.assertEqual((project / "new_file.py").read_text(encoding="utf-8"), "added")
