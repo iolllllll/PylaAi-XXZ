@@ -5,6 +5,7 @@ from pathlib import Path
 from tools.updater import (
     backup_preserved_files,
     copy_update_files,
+    download_url_for_ref,
     latest_download_url,
     MAIN_BRANCH_ZIP,
     merge_toml_text,
@@ -20,6 +21,12 @@ class UpdaterTest(unittest.TestCase):
 
         self.assertEqual(url, MAIN_BRANCH_ZIP)
         self.assertEqual(label, "main branch zip")
+
+    def test_downgrade_ref_download_url_uses_requested_version(self):
+        url, label = download_url_for_ref("abc123")
+
+        self.assertEqual(url, "https://github.com/xxz-888/PylaAi-XXZ/archive/abc123.zip")
+        self.assertEqual(label, "GitHub ref abc123")
 
     def test_copy_update_preserves_user_api_config_and_skips_updater_exe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -119,9 +126,10 @@ class UpdaterTest(unittest.TestCase):
             project = Path(tmp)
 
             self.assertIsNone(read_local_update_sha(project))
-            write_local_update_info(project, "abc123")
+            write_local_update_info(project, "abc123", selected_ref="abc123")
 
             self.assertEqual(read_local_update_sha(project), "abc123")
+            self.assertIn('"selected_ref": "abc123"', (project / "cfg" / "update_info.json").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

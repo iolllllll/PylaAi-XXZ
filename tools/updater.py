@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.parse
 import zipfile
 import ctypes
 from pathlib import Path
@@ -15,6 +16,7 @@ REPO_OWNER = "xxz-888"
 REPO_NAME = "PylaAi-XXZ"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 MAIN_BRANCH_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/commits/main"
+COMMITS_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/commits"
 MAIN_BRANCH_ZIP = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/archive/refs/heads/main.zip"
 UPDATE_INFO_PATH = Path("cfg") / "update_info.json"
 
@@ -94,6 +96,14 @@ def latest_download_url() -> tuple[str, str]:
     return MAIN_BRANCH_ZIP, "main branch zip"
 
 
+def download_url_for_ref(ref: str) -> tuple[str, str]:
+    ref = str(ref or "").strip()
+    if not ref:
+        return latest_download_url()
+    encoded_ref = urllib.parse.quote(ref, safe="")
+    return f"https://github.com/{REPO_OWNER}/{REPO_NAME}/archive/{encoded_ref}.zip", f"GitHub ref {ref}"
+
+
 def latest_main_sha() -> str | None:
     try:
         data = request_json(MAIN_BRANCH_API)
@@ -101,6 +111,28 @@ def latest_main_sha() -> str | None:
         return sha or None
     except Exception:
         return None
+
+
+def resolve_ref_sha(ref: str) -> str | None:
+    ref = str(ref or "").strip()
+    if not ref:
+        return latest_main_sha()
+    try:
+        data = request_json(f"{COMMITS_API}/{urllib.parse.quote(ref, safe='')}")
+        sha = str(data.get("sha") or "").strip()
+        return sha or None
+    except Exception:
+        # A tag/branch archive can still be downloadable even if the commit API
+        # cannot resolve it, so install can continue without the local marker.
+        return None
+
+
+def recent_commits(limit=10) -> list[dict]:
+    limit = max(1, min(int(limit), 30))
+    data = request_json(f"{COMMITS_API}?sha=main&per_page={limit}")
+    if not isinstance(data, list):
+        return []
+    return data
 
 
 def read_local_update_sha(project_dir: Path) -> str | None:
@@ -115,19 +147,19 @@ def read_local_update_sha(project_dir: Path) -> str | None:
         return None
 
 
-def write_local_update_info(project_dir: Path, sha: str | None) -> None:
+def write_local_update_info(project_dir: Path, sha: str | None, selected_ref: str | None = None) -> None:
     if not sha:
         return
     info_path = project_dir / UPDATE_INFO_PATH
     info_path.parent.mkdir(parents=True, exist_ok=True)
-    info_path.write_text(
-        json.dumps({
-            "main_sha": sha,
-            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "repo": f"{REPO_OWNER}/{REPO_NAME}",
-        }, indent=4),
-        encoding="utf-8",
-    )
+    data = {
+        "main_sha": sha,
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "repo": f"{REPO_OWNER}/{REPO_NAME}",
+    }
+    if selected_ref:
+        data["selected_ref"] = selected_ref
+    info_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
 def download_file(url: str, destination: Path, label: str) -> Path:
@@ -324,10 +356,50 @@ def copy_update_files(source_root: Path, project_dir: Path) -> None:
             print(f"Skipped locked file: {relative_path}")
 
 
+def install_from_zip(project_dir: Path, url: str, label: str, marker_sha: str | None = None, selected_ref: str | None = None) -> None:
+    temp_dir = Path(tempfile.mkdtemp(prefix="pyla_update_"))
+    backup_dir = temp_dir / "preserved_user_files"
+    zip_path = temp_dir / "pylaai_update.zip"
+
+    try:
+        backup_preserved_files(project_dir, backup_dir)
+        download_file(url, zip_path, label)
+        extract_dir = temp_dir / "extracted"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        print("Extracting update...")
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            archive.extractall(extract_dir)
+        source_root = find_project_root(extract_dir)
+        print(f"Installing update from: {source_root}")
+        copy_update_files(source_root, project_dir)
+        restore_preserved_files(project_dir, backup_dir)
+        write_local_update_info(project_dir, marker_sha, selected_ref=selected_ref)
+    except Exception:
+        if backup_dir.exists():
+            try:
+                restore_preserved_files(project_dir, backup_dir)
+            except Exception:
+                pass
+        raise
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def option_value(name: str) -> str | None:
+    if name not in sys.argv:
+        return None
+    index = sys.argv.index(name)
+    if index + 1 >= len(sys.argv):
+        raise ValueError(f"{name} requires a value.")
+    return sys.argv[index + 1]
+
+
 def main() -> int:
     if "--help" in sys.argv or "-h" in sys.argv:
         print("PylaAi-XXZ updater")
         print("Downloads the latest GitHub update and keeps your cfg settings.")
+        print("Use --ref <commit/tag/branch> to install or downgrade to a specific version.")
+        print("Use --list-versions to show recent main commits you can pass to --ref.")
         print("Use --force to reinstall even when this folder is already current.")
         print("Use --smoke-test to verify that updater.exe starts.")
         return 0
@@ -347,33 +419,49 @@ def main() -> int:
         print("Smoke test passed. Updater can see the PylaAi-XXZ project folder.")
         return 0
 
-    latest_sha = latest_main_sha()
+    if "--list-versions" in sys.argv:
+        try:
+            count_arg = option_value("--list-versions")
+            count = int(count_arg) if count_arg and not count_arg.startswith("--") else 10
+        except Exception:
+            count = 10
+        try:
+            print("Recent versions from main:")
+            for commit in recent_commits(count):
+                sha = str(commit.get("sha", ""))[:8]
+                details = commit.get("commit") or {}
+                message = str(details.get("message") or "").splitlines()[0]
+                date = ((details.get("committer") or {}).get("date") or "")[:10]
+                print(f"  {sha}  {date}  {message}")
+            wait_for_enter()
+            return 0
+        except Exception as exc:
+            print(f"Could not list versions: {exc}")
+            wait_for_enter()
+            return 1
+
+    try:
+        selected_ref = option_value("--ref")
+    except ValueError as exc:
+        print(exc)
+        wait_for_enter()
+        return 1
+
+    latest_sha = resolve_ref_sha(selected_ref) if selected_ref else latest_main_sha()
     local_sha = read_local_update_sha(project_dir)
     if latest_sha and local_sha == latest_sha and "--force" not in sys.argv:
         print_green("You're on the latest version!")
         wait_for_enter()
         return 0
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="pyla_update_"))
-    backup_dir = temp_dir / "preserved_user_files"
-    zip_path = temp_dir / "latest_pylaai.zip"
-
     try:
-        backup_preserved_files(project_dir, backup_dir)
-        url, label = latest_download_url()
-        download_file(url, zip_path, label)
-        extract_dir = temp_dir / "extracted"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        print("Extracting update...")
-        with zipfile.ZipFile(zip_path, "r") as archive:
-            archive.extractall(extract_dir)
-        source_root = find_project_root(extract_dir)
-        print(f"Installing update from: {source_root}")
-        copy_update_files(source_root, project_dir)
-        restore_preserved_files(project_dir, backup_dir)
-        write_local_update_info(project_dir, latest_sha)
+        url, label = download_url_for_ref(selected_ref) if selected_ref else latest_download_url()
+        install_from_zip(project_dir, url, label, marker_sha=latest_sha, selected_ref=selected_ref)
         print("")
-        print("Update completed.")
+        if selected_ref:
+            print(f"Version switch completed: {selected_ref}")
+        else:
+            print("Update completed.")
         print("Your cfg settings were kept, with new config keys added.")
         print("Run setup.exe if the update added new dependencies.")
         wait_for_enter()
@@ -381,15 +469,8 @@ def main() -> int:
     except Exception as exc:
         print("")
         print(f"Update failed: {exc}")
-        if backup_dir.exists():
-            try:
-                restore_preserved_files(project_dir, backup_dir)
-            except Exception:
-                pass
         wait_for_enter()
         return 1
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
