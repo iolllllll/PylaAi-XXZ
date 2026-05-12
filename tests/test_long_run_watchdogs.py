@@ -60,6 +60,61 @@ class LongRunWatchdogTests(unittest.TestCase):
 
         self.assertFalse(controller.restart_emulator_profile())
 
+    @patch("window_controller._start_android_app_on_display", return_value=True)
+    @patch("window_controller._stop_android_app", return_value=True)
+    @patch("window_controller._move_android_task_to_display", return_value=True)
+    @patch("window_controller._wake_android_display")
+    @patch("window_controller.time.sleep")
+    @patch(
+        "window_controller._get_package_task_display",
+        side_effect=[(42, 10), (42, 10), (42, 10), (42, 0)],
+    )
+    def test_primary_display_repair_force_restarts_when_move_does_not_stick(
+        self,
+        _mock_display,
+        _mock_sleep,
+        _mock_wake,
+        _mock_move,
+        mock_stop,
+        mock_start,
+    ):
+        controller = object.__new__(WindowController)
+        controller.connected_serial = "emulator-5554"
+        controller.brawl_stars_package = "com.supercell.brawlstars"
+
+        self.assertTrue(controller.ensure_brawl_stars_on_primary_display(allow_app_restart=True))
+        mock_stop.assert_called_once_with("emulator-5554", "com.supercell.brawlstars")
+        mock_start.assert_called_with(
+            "emulator-5554",
+            "com.supercell.brawlstars",
+            display_id=0,
+        )
+
+    @patch("window_controller._start_android_app_on_display", return_value=True)
+    @patch("window_controller._stop_android_app", return_value=True)
+    @patch("window_controller._move_android_task_to_display", return_value=True)
+    @patch("window_controller._wake_android_display")
+    @patch("window_controller.time.sleep")
+    @patch(
+        "window_controller._get_package_task_display",
+        side_effect=[(42, 10), (42, 10), (42, 10)],
+    )
+    def test_primary_display_log_only_does_not_restart_app(
+        self,
+        _mock_display,
+        _mock_sleep,
+        _mock_wake,
+        _mock_move,
+        mock_stop,
+        _mock_start,
+    ):
+        controller = object.__new__(WindowController)
+        controller.connected_serial = "emulator-5554"
+        controller.brawl_stars_package = "com.supercell.brawlstars"
+
+        self.assertFalse(controller.ensure_brawl_stars_on_primary_display(log_only=True))
+        mock_stop.assert_not_called()
+
     def test_restart_brawl_stars_returns_false_when_adb_is_offline(self):
         controller = object.__new__(WindowController)
         controller.ensure_emulator_online = lambda: False

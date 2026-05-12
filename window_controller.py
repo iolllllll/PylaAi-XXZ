@@ -358,6 +358,17 @@ def _stop_android_app(serial, package, timeout=8):
         return False
 
 
+def _wake_android_display(serial, timeout=4):
+    for args in (
+        ["shell", "input", "keyevent", "KEYCODE_WAKEUP"],
+        ["shell", "wm", "dismiss-keyguard"],
+    ):
+        try:
+            _run_adb(serial, args, timeout=timeout)
+        except Exception:
+            pass
+
+
 def _get_mumu_manager_path(config=None):
     manager_path = ""
     if config:
@@ -898,7 +909,7 @@ class WindowController:
     def start_scrcpy_client(self):
         if not self.ensure_emulator_online():
             raise ConnectionError("ADB device is offline; waiting for emulator cooldown before retrying.")
-        self.ensure_brawl_stars_on_primary_display(log_only=True)
+        self.ensure_brawl_stars_on_primary_display(allow_app_restart=True)
         self.scrcpy_generation += 1
         generation = self.scrcpy_generation
 
@@ -1002,7 +1013,7 @@ class WindowController:
         with self.frame_lock:
             return self.frame_id
 
-    def ensure_brawl_stars_on_primary_display(self, log_only=False):
+    def ensure_brawl_stars_on_primary_display(self, log_only=False, allow_app_restart=False):
         task_id, display_id = _get_package_task_display(
             self.connected_serial,
             self.brawl_stars_package,
@@ -1017,14 +1028,49 @@ class WindowController:
             f"Brawl Stars is on Android displayId={display_id}; "
             "moving it back to displayId=0 for scrcpy capture."
         )
-        moved = _move_android_task_to_display(self.connected_serial, task_id, 0)
-        if not moved:
-            moved = _start_android_app_on_display(
+        _wake_android_display(self.connected_serial)
+
+        for attempt in range(1, 3):
+            moved = _move_android_task_to_display(self.connected_serial, task_id, 0)
+            if not moved:
+                _start_android_app_on_display(
+                    self.connected_serial,
+                    self.brawl_stars_package,
+                    display_id=0,
+                )
+            time.sleep(0.8)
+            task_id, new_display_id = _get_package_task_display(
                 self.connected_serial,
                 self.brawl_stars_package,
-                display_id=0,
+                timeout=4,
             )
-        time.sleep(1)
+            if new_display_id == 0:
+                return True
+            if new_display_id is not None:
+                print(
+                    f"Display repair attempt {attempt}/2 still sees Brawl Stars "
+                    f"on displayId={new_display_id}."
+                )
+
+        if log_only:
+            print("Could not verify Brawl Stars on displayId=0 yet; continuing startup.")
+            return False
+        if not allow_app_restart:
+            print("Could not verify Brawl Stars on displayId=0 yet.")
+            return False
+
+        print("Brawl Stars did not move to displayId=0; restarting the app on displayId=0.")
+        try:
+            _stop_android_app(self.connected_serial, self.brawl_stars_package)
+        except Exception:
+            pass
+        time.sleep(0.5)
+        started = _start_android_app_on_display(
+            self.connected_serial,
+            self.brawl_stars_package,
+            display_id=0,
+        )
+        time.sleep(2)
         _task_id, new_display_id = _get_package_task_display(
             self.connected_serial,
             self.brawl_stars_package,
@@ -1032,20 +1078,13 @@ class WindowController:
         )
         if new_display_id == 0:
             return True
-        if log_only:
-            print("Could not verify Brawl Stars on displayId=0 yet; continuing startup.")
-            return False
-        print("Brawl Stars did not move to displayId=0; restarting the app on displayId=0.")
-        try:
-            _stop_android_app(self.connected_serial, self.brawl_stars_package)
-        except Exception:
-            pass
-        time.sleep(0.5)
-        return _start_android_app_on_display(
-            self.connected_serial,
-            self.brawl_stars_package,
-            display_id=0,
+        if new_display_id is None:
+            return started
+        print(
+            f"Brawl Stars relaunched but Android still reports displayId={new_display_id}; "
+            "scrcpy may keep receiving stale frames."
         )
+        return False
 
     def restart_brawl_stars(self):
         if not self.ensure_emulator_online():
@@ -1073,7 +1112,7 @@ class WindowController:
             if not _start_android_app_on_display(self.connected_serial, self.brawl_stars_package, display_id=0):
                 self.device.app_start(self.brawl_stars_package)
         time.sleep(3)
-        self.ensure_brawl_stars_on_primary_display()
+        self.ensure_brawl_stars_on_primary_display(allow_app_restart=True)
         self.time_since_checked_if_brawl_stars_crashed = time.time()
         self.foreground_check_failures = 0
         print("Brawl stars restarted successfully.")
@@ -1116,10 +1155,10 @@ class WindowController:
                     print(f"Could not start Brawl Stars, restarting emulator profile: {e}")
                     self.restart_emulator_profile()
                 time.sleep(3)
-                self.ensure_brawl_stars_on_primary_display()
+                self.ensure_brawl_stars_on_primary_display(allow_app_restart=True)
                 self.time_since_checked_if_brawl_stars_crashed = time.time()
             else:
-                self.ensure_brawl_stars_on_primary_display(log_only=True)
+                self.ensure_brawl_stars_on_primary_display(allow_app_restart=True)
                 self.foreground_check_failures = 0
                 self.time_since_checked_if_brawl_stars_crashed = c_time
         frame, frame_time = self.get_latest_frame()
