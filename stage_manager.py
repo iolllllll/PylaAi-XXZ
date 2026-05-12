@@ -133,25 +133,42 @@ class StageManager:
         self.window_controller.keys_up(list("wasd"))
         if use_play_again:
             screenshot = self.window_controller.screenshot()
+            if self.is_play_again_button_visually_available(screenshot):
+                print("Post-match action: clicking PLAY AGAIN.")
+                self.click_play_again_button()
+                return
+
             exit_center = self.get_play_again_missing_exit_center(screenshot, allow_ocr=False)
             if exit_center is not None:
                 print("Play Again unavailable; clicking EXIT to requeue from lobby.")
                 self.window_controller.click(*exit_center, delay=0.08)
                 return
-            if not self.is_play_again_button_visually_available(screenshot):
-                exit_center = self.get_play_again_missing_exit_center(screenshot, allow_ocr=True)
-                if exit_center is not None:
-                    print("Play Again unavailable; clicking EXIT to requeue from lobby.")
-                    self.window_controller.click(*exit_center, delay=0.08)
-                    return
-            print("Post-match action: clicking PLAY AGAIN.")
-            self.window_controller.click(
-                int(1215 * self.window_controller.width_ratio),
-                int(935 * self.window_controller.height_ratio),
-                delay=0.08,
-            )
+
+            text_state = self.get_play_again_text_state(screenshot)
+            if text_state == "play_again":
+                print("Post-match action: clicking PLAY AGAIN.")
+                self.click_play_again_button()
+                return
+            if text_state == "exit":
+                print("Play Again unavailable; clicking EXIT to requeue from lobby.")
+                self.window_controller.click(
+                    int(1660 * self.window_controller.width_ratio),
+                    int(980 * self.window_controller.height_ratio),
+                    delay=0.08,
+                )
+                return
+
+            print("Play Again button is not enabled; pressing continue instead.")
+            self.window_controller.press_key("Q")
             return
         self.window_controller.press_key("Q")
+
+    def click_play_again_button(self):
+        self.window_controller.click(
+            int(1215 * self.window_controller.width_ratio),
+            int(935 * self.window_controller.height_ratio),
+            delay=0.08,
+        )
 
     def _scaled_crop(self, image, region):
         if image is None or image.size == 0:
@@ -207,12 +224,22 @@ class StageManager:
         if not allow_ocr:
             return None
 
+        text_state = self.get_play_again_text_state(screenshot)
+        if text_state != "exit":
+            return None
+
+        return (
+            int(1660 * self.window_controller.width_ratio),
+            int(980 * self.window_controller.height_ratio),
+        )
+
+    def get_play_again_text_state(self, screenshot):
         try:
             height, width = screenshot.shape[:2]
             button_crop = screenshot[int(height * 0.78):height, int(width * 0.72):width]
             texts = extract_text_strings(button_crop)
         except Exception:
-            return None
+            return ""
 
         normalized_words = [normalize_brawler_name(text) for text in texts]
         normalized_text = " ".join(normalized_words)
@@ -221,14 +248,10 @@ class StageManager:
                 "play" in normalized_text and "again" in normalized_text
         ) or "playagain" in compact_text
         if play_again_visible:
-            return None
-        if "exit" not in normalized_text:
-            return None
-
-        return (
-            int(1660 * self.window_controller.width_ratio),
-            int(980 * self.window_controller.height_ratio),
-        )
+            return "play_again"
+        if "exit" in normalized_text:
+            return "exit"
+        return ""
 
     def restart_and_select_next_after_target(self, target, type_of_push):
         print("Target reached in Play Again mode; restarting Brawl Stars before selecting next brawler.")
