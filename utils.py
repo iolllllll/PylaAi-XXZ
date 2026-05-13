@@ -91,6 +91,28 @@ def _extract_api_token(value):
     return str(value or "").strip()
 
 
+def _masked_presence(value):
+    return "yes" if str(value or "").strip() else "no"
+
+
+def _player_tag_presence(config):
+    tag = str(get_config_player_tag(config) or "").strip().upper()
+    return "yes" if tag and tag != "#YOURTAG" else "no"
+
+
+def brawl_stars_api_config_status(config, file_path="cfg/brawl_stars_api.toml"):
+    resolved_file_path = resolve_project_path(file_path)
+    return (
+        f"file={resolved_file_path}; "
+        f"exists={'yes' if os.path.exists(resolved_file_path) else 'no'}; "
+        f"auto_refresh_token={'yes' if _config_bool(config.get('auto_refresh_token'), False) else 'no'}; "
+        f"developer_email_present={_masked_presence(config.get('developer_email'))}; "
+        f"developer_password_present={_masked_presence(config.get('developer_password'))}; "
+        f"player_tag_present={_player_tag_presence(config)}; "
+        f"api_token_present={_masked_presence(_extract_api_token(config.get('api_token', '')))}"
+    )
+
+
 def get_public_ip(service_url="https://api.ipify.org"):
     response = requests.get(service_url, timeout=15)
     response.raise_for_status()
@@ -127,7 +149,8 @@ def refresh_brawl_stars_api_token_if_enabled(config, file_path="cfg/brawl_stars_
         _brawl_stars_api_refresh_signature = None
         raise ValueError(
             "auto_refresh_token is enabled, but developer_email/developer_password are missing. "
-            f"Open {resolved_file_path} and fill developer_email, developer_password, and player_tag."
+            f"Open {resolved_file_path} and fill developer_email, developer_password, and player_tag. "
+            f"Detected: {brawl_stars_api_config_status(config, file_path)}"
         )
 
     timeout = int(config.get("timeout_seconds", 15))
@@ -360,9 +383,10 @@ def fetch_brawl_stars_player(api_token, player_tag, timeout=15):
     except ValueError:
         reason = response.text
     if response.status_code == 403:
+        config_path = resolve_project_path("cfg/brawl_stars_api.toml")
         raise RuntimeError(
             "Brawl Stars API accessDenied. Your API token is not valid for the current public IP. "
-            "Enable auto_refresh_token and fill developer_email/developer_password in cfg/brawl_stars_api.toml, "
+            f"Enable auto_refresh_token and fill developer_email/developer_password in {config_path}, "
             "or create a new token manually for this PC's public IP."
         )
     raise RuntimeError(f"Brawl Stars API error {response.status_code}: {reason}")
@@ -376,6 +400,16 @@ def _use_existing_api_token_after_refresh_failure(config, file_path, error):
     _brawl_stars_api_refresh_signature = _api_refresh_signature(file_path, config)
     print(f"Brawl Stars API auto-refresh failed ({error}); using existing api_token.")
     return config
+
+
+def _extract_config_text_value(text, key):
+    match = re.search(rf'^\s*{re.escape(key)}\s*=\s*"(.*?)"\s*(?:#.*)?$', text, re.MULTILINE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    match = re.search(rf"^\s*{re.escape(key)}\s*=\s*([^\r\n#]+)", text, re.MULTILINE)
+    if match:
+        return match.group(1).strip().strip("'\"")
+    return None
 
 
 def load_brawl_stars_api_config(file_path="cfg/brawl_stars_api.toml", force_refresh=False):
@@ -407,13 +441,13 @@ def load_brawl_stars_api_config(file_path="cfg/brawl_stars_api.toml", force_refr
         text = f.read()
 
     config = {}
-    token_match = re.search(r'api_token\s*=\s*"(.*?)"', text, re.DOTALL)
-    if token_match:
-        config["api_token"] = "".join(token_match.group(1).split())
+    token_value = _extract_config_text_value(text, "api_token")
+    if token_value is not None:
+        config["api_token"] = "".join(token_value.split())
 
-    tag_match = re.search(r'player_tag\s*=\s*"([^"]*)"', text)
-    if tag_match:
-        config["player_tag"] = tag_match.group(1).strip()
+    tag_value = _extract_config_text_value(text, "player_tag")
+    if tag_value is not None:
+        config["player_tag"] = tag_value.strip()
     else:
         config["player_tag"] = str(load_toml_as_dict("cfg/general_config.toml").get("player_tag", "")).strip()
 
@@ -438,9 +472,9 @@ def load_brawl_stars_api_config(file_path="cfg/brawl_stars_api.toml", force_refr
         "key_description",
         "last_public_ip",
     ):
-        match = re.search(rf'{key}\s*=\s*"([^"]*)"', text)
-        if match:
-            config[key] = match.group(1)
+        value = _extract_config_text_value(text, key)
+        if value is not None:
+            config[key] = value
 
     for key in ("delete_old_auto_tokens", "delete_all_tokens"):
         match = re.search(rf"{key}\s*=\s*(true|false)", text, re.IGNORECASE)

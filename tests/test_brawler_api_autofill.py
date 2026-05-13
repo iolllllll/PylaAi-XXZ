@@ -55,6 +55,17 @@ class BrawlerApiAutofillTest(unittest.TestCase):
 
         self.assertFalse(utils._brawl_stars_api_refresh_done)
 
+    def test_failed_auto_refresh_reports_detected_config_fields(self):
+        config = {
+            "auto_refresh_token": True,
+            "developer_email": "user@example.com",
+            "developer_password": "",
+            "player_tag": "#PLAYER",
+        }
+
+        with self.assertRaisesRegex(ValueError, "developer_email_present=yes; developer_password_present=no"):
+            utils.refresh_brawl_stars_api_token_if_enabled(config)
+
     @patch("utils.save_dict_as_toml")
     @patch("utils.get_public_ip", return_value="1.2.3.4")
     @patch("utils._developer_api_post")
@@ -201,6 +212,29 @@ class BrawlerApiAutofillTest(unittest.TestCase):
             self.assertEqual(config["player_tag"], "#PROJECT")
         finally:
             os.chdir(original_cwd)
+            utils.clear_toml_cache(path)
+            if os.path.exists(path):
+                os.remove(path)
+
+    @patch("utils.refresh_brawl_stars_api_token_if_enabled")
+    def test_fallback_parser_accepts_unquoted_credentials_after_toml_error(self, mock_refresh):
+        mock_refresh.side_effect = lambda config, file_path: config
+        path = "cfg/test_brawl_stars_api_unquoted.toml"
+        try:
+            Path(path).write_text(
+                'player_tag = "#PLAYER"\n'
+                'auto_refresh_token = true\n'
+                'developer_email = user@example.com\n'
+                'developer_password = secret-password\n',
+                encoding="utf-8",
+            )
+
+            config = utils.load_brawl_stars_api_config(path)
+
+            self.assertEqual(config["developer_email"], "user@example.com")
+            self.assertEqual(config["developer_password"], "secret-password")
+            self.assertEqual(config["player_tag"], "#PLAYER")
+        finally:
             utils.clear_toml_cache(path)
             if os.path.exists(path):
                 os.remove(path)
