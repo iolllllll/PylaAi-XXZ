@@ -17,6 +17,7 @@ from utils import (
     load_brawl_stars_api_config,
     load_toml_as_dict,
     normalize_brawler_name,
+    resolve_project_path,
     resolve_brawler_name_alias,
     save_brawler_icon,
     get_dpi_scale,
@@ -531,7 +532,7 @@ class SelectBrawler:
         except Exception as e:
             print(f"Push All failed: {e}")
             print(
-                "Open cfg/brawl_stars_api.toml and make sure player_tag, developer_email, "
+                f"Open {resolve_project_path('cfg/brawl_stars_api.toml')} and make sure player_tag, developer_email, "
                 "developer_password, and auto_refresh_token are set correctly."
             )
             if hidden_for_start:
@@ -577,7 +578,7 @@ class SelectBrawler:
             self.api_trophies_by_brawler = {}
             self.api_trophies_by_normalized_brawler = {}
             if not self.api_trophy_error_reported:
-                print(f"Could not auto-fill trophies. Check {config_path}: {e}")
+                print(f"Could not auto-fill trophies. Check {resolve_project_path(config_path)}: {e}")
                 self.api_trophy_error_reported = True
         return self.api_trophies_by_brawler
 

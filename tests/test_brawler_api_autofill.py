@@ -1,5 +1,7 @@
 import unittest
 import json
+import os
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -80,7 +82,7 @@ class BrawlerApiAutofillTest(unittest.TestCase):
         self.assertTrue(utils._brawl_stars_api_refresh_done)
         self.assertEqual(
             utils._brawl_stars_api_refresh_signature,
-            ("cfg/brawl_stars_api.toml", "user@example.com", "secret", "#PLAYER"),
+            (utils.resolve_project_path("cfg/brawl_stars_api.toml"), "user@example.com", "secret", "#PLAYER"),
         )
 
     @patch("utils.save_dict_as_toml")
@@ -177,6 +179,28 @@ class BrawlerApiAutofillTest(unittest.TestCase):
             self.assertEqual(utils.load_brawl_stars_api_config(path)["player_tag"], "#SECOND")
         finally:
             import os
+            utils.clear_toml_cache(path)
+            if os.path.exists(path):
+                os.remove(path)
+
+    @patch("utils.refresh_brawl_stars_api_token_if_enabled")
+    def test_api_config_path_is_project_relative_not_cwd_relative(self, mock_refresh):
+        mock_refresh.side_effect = lambda config, file_path: config
+        path = "cfg/test_brawl_stars_api_project_relative.toml"
+        original_cwd = os.getcwd()
+        try:
+            Path(path).write_text(
+                'api_token = ""\nplayer_tag = "#PROJECT"\nauto_refresh_token = false\n',
+                encoding="utf-8",
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                config = utils.load_brawl_stars_api_config(path)
+                os.chdir(original_cwd)
+
+            self.assertEqual(config["player_tag"], "#PROJECT")
+        finally:
+            os.chdir(original_cwd)
             utils.clear_toml_cache(path)
             if os.path.exists(path):
                 os.remove(path)

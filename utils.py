@@ -2,6 +2,7 @@
 import io
 import os
 import re
+import sys
 import time
 from io import BytesIO
 import ctypes
@@ -20,6 +21,22 @@ DEVELOPER_API_BASE_URL = "https://developer.brawlstars.com/api/"
 _brawl_stars_api_refresh_done = False
 _brawl_stars_api_refresh_signature = None
 _brawler_name_aliases = None
+
+
+def project_root():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_project_path(file_path):
+    file_path = os.fspath(file_path)
+    if os.path.isabs(file_path):
+        return file_path
+    normalized = file_path.replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    return os.path.join(project_root(), normalized)
 
 
 def _config_bool(value, default=False):
@@ -61,7 +78,7 @@ def _is_developer_session_not_found(error):
 
 def _api_refresh_signature(file_path, config):
     return (
-        str(file_path),
+        resolve_project_path(file_path),
         str(config.get("developer_email", "")).strip(),
         str(config.get("developer_password", "")).strip(),
         str(config.get("player_tag", "")).strip(),
@@ -93,6 +110,7 @@ def refresh_brawl_stars_api_token_if_enabled(config, file_path="cfg/brawl_stars_
     password = str(config.get("developer_password", "")).strip()
     player_tag = str(config.get("player_tag", "")).strip()
     existing_token = _extract_api_token(config.get("api_token", ""))
+    resolved_file_path = resolve_project_path(file_path)
     refresh_signature = _api_refresh_signature(file_path, config)
 
     if (
@@ -109,7 +127,7 @@ def refresh_brawl_stars_api_token_if_enabled(config, file_path="cfg/brawl_stars_
         _brawl_stars_api_refresh_signature = None
         raise ValueError(
             "auto_refresh_token is enabled, but developer_email/developer_password are missing. "
-            "Open cfg/brawl_stars_api.toml and fill developer_email, developer_password, and player_tag."
+            f"Open {resolved_file_path} and fill developer_email, developer_password, and player_tag."
         )
 
     timeout = int(config.get("timeout_seconds", 15))
@@ -188,24 +206,27 @@ class DefaultEasyOCR:
 cached_toml = {}
 
 def load_toml_as_dict(file_path):
-    if file_path not in cached_toml:
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8-sig') as f:
-                cached_toml[file_path] = toml.load(f)
+    resolved_file_path = resolve_project_path(file_path)
+    if resolved_file_path not in cached_toml:
+        if os.path.exists(resolved_file_path):
+            with open(resolved_file_path, 'r', encoding='utf-8-sig') as f:
+                cached_toml[resolved_file_path] = toml.load(f)
         else:
-            cached_toml[file_path] = {}
-    return cached_toml[file_path]
+            cached_toml[resolved_file_path] = {}
+    return cached_toml[resolved_file_path]
 
 def clear_toml_cache(file_path=None):
     if file_path is None:
         cached_toml.clear()
     else:
-        cached_toml.pop(file_path, None)
+        cached_toml.pop(resolve_project_path(file_path), None)
 
 def save_dict_as_toml(data, file_path):
-    with open(file_path, 'w', encoding='utf-8') as f:
+    resolved_file_path = resolve_project_path(file_path)
+    os.makedirs(os.path.dirname(resolved_file_path), exist_ok=True)
+    with open(resolved_file_path, 'w', encoding='utf-8') as f:
         toml.dump(data, f)
-    cached_toml[file_path] = data
+    cached_toml[resolved_file_path] = data
 
 
 reader = None
@@ -313,9 +334,10 @@ def fetch_brawl_stars_player(api_token, player_tag, timeout=15):
     api_token = _extract_api_token(api_token)
     cleaned_tag = str(player_tag).strip().upper()
     if not api_token:
+        config_path = resolve_project_path("cfg/brawl_stars_api.toml")
         raise ValueError(
             "Missing Brawl Stars API token. Enable auto_refresh_token and fill "
-            "developer_email/developer_password in cfg/brawl_stars_api.toml."
+            f"developer_email/developer_password in {config_path}."
         )
     if not cleaned_tag or cleaned_tag == "#YOURTAG":
         raise ValueError(
@@ -357,6 +379,7 @@ def _use_existing_api_token_after_refresh_failure(config, file_path, error):
 
 
 def load_brawl_stars_api_config(file_path="cfg/brawl_stars_api.toml", force_refresh=False):
+    resolved_file_path = resolve_project_path(file_path)
     try:
         clear_toml_cache(file_path)
         config = load_toml_as_dict(file_path)
@@ -373,14 +396,14 @@ def load_brawl_stars_api_config(file_path="cfg/brawl_stars_api.toml", force_refr
     except toml.TomlDecodeError:
         pass
 
-    if not os.path.exists(file_path):
+    if not os.path.exists(resolved_file_path):
         return {
             "player_tag": get_config_player_tag({}),
             "timeout_seconds": 15,
             "auto_refresh_token": True,
         }
 
-    with open(file_path, "r", encoding="utf-8-sig") as f:
+    with open(resolved_file_path, "r", encoding="utf-8-sig") as f:
         text = f.read()
 
     config = {}
