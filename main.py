@@ -224,6 +224,10 @@ def pyla_main(data):
                 time_thresholds.get("starr_nova_info_check_interval", 60.0)
             )
             self.last_starr_nova_info_check = 0.0
+            self.match_start_fast_check_interval = float(
+                time_thresholds.get("match_start_fast_check_interval", 0.20)
+            )
+            self.last_match_start_fast_check = 0.0
             self.lobby_start_retry_interval = float(time_thresholds.get("lobby_start_retry", 8.0))
             self.lobby_stuck_restart_seconds = float(time_thresholds.get("lobby_stuck_restart", 120.0))
             self.lobby_after_match_confirm_seconds = float(
@@ -792,6 +796,28 @@ def pyla_main(data):
                 #print("check for idle!")
                 self.lobby_automator.check_for_idle(frame)
 
+        def try_promote_match_start(self, frame):
+            if self.state not in {"match_making", "lobby"}:
+                return False
+            now = time.time()
+            if now - self.last_match_start_fast_check < self.match_start_fast_check_interval:
+                return False
+            self.last_match_start_fast_check = now
+            detected_state = get_state(frame)
+            state = self.apply_state_context_guard(detected_state, self.state)
+            if state != "match":
+                return False
+            previous_state = self.state
+            self.state = "match"
+            self.match_launch_pending = False
+            self.Play.reset_match_control_state()
+            self.Stage_manager.adaptive_brain.apply_to_play(self.Play)
+            self.match_ready_at = time.time() + self.match_warmup_seconds
+            if previous_state in {"lobby", "match_making"}:
+                self.Stage_manager.reset_prestige_reward_gate()
+            print("Fast match start detected; movement loop active.")
+            return True
+
         def handle_disconnect_screen(self, frame):
             if time.time() - self.last_disconnect_check < self.disconnect_ocr_interval:
                 return False
@@ -1014,6 +1040,14 @@ def pyla_main(data):
 
                 if self.handle_visual_freeze(frame):
                     continue
+
+                if self.state != "match":
+                    if self.try_promote_match_start(frame):
+                        pass
+                    else:
+                        self.window_controller.keys_up(list("wasd"))
+                        time.sleep(0.02)
+                        continue
 
                 if self.state != "match":
                     self.window_controller.keys_up(list("wasd"))

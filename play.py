@@ -480,6 +480,7 @@ class Play(Movement):
         }
         self.time_since_last_proceeding = time.time()
         self.time_since_last_no_detection_q = time.time()
+        self.player_lost_movement_grace_seconds = float(bot_config.get("player_lost_movement_grace_seconds", 2.5))
 
         self.last_movement = None
         self.last_movement_time = time.time()
@@ -2458,7 +2459,13 @@ class Play(Movement):
                 if main.state != "match":
                     data = None
         if not data:
-            if current_time - self.time_since_player_last_found > 1.0:
+            player_lost_for = current_time - self.time_since_player_last_found
+            if (
+                    player_lost_for <= getattr(self, "player_lost_movement_grace_seconds", 2.5)
+                    and getattr(self, "last_movement", None) is not None
+            ):
+                self.do_movement(self.last_movement)
+            elif player_lost_for > 1.0:
                 self.capture_vision_frame(
                     "player_lost",
                     frame,
