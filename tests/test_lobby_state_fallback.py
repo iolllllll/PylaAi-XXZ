@@ -103,6 +103,10 @@ class LobbyStateFallbackTests(unittest.TestCase):
         image[92:250, 330:850] = (245, 245, 245)
         image[112:225, 360:820] = cyan_bgr
         image[125:175, 555:760] = pink_bgr
+        image[110:760, 900:1780] = (214, 214, 214)
+        for x in range(900, 1780, 160):
+            cv2.line(image, (x, 110), (x + 180, 760), (165, 165, 165), 5)
+        image[900:1080, 260:1660] = (120, 120, 120)
         image[900:1065, 1250:1720] = yellow_bgr
         image[900:1065, 350:620] = pink_bgr
 
@@ -258,6 +262,33 @@ class LobbyStateFallbackTests(unittest.TestCase):
             (245, 245, 245),
             18,
         )
+
+        self.assertIsNotNone(get_starr_nova_hub_back_button_center(image))
+        self.assertFalse(is_starr_nova_hub_screen(image))
+
+    def test_starr_nova_hub_screen_rejects_blue_profile_page(self):
+        image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        blue_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (112, 210, 225), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        cyan_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (90, 220, 230), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        image[:] = blue_bgr
+        image[0:115, 0:150] = (48, 56, 74)
+        cv2.polylines(
+            image,
+            [np.array([(82, 18), (34, 56), (82, 96)], dtype=np.int32)],
+            False,
+            (245, 245, 245),
+            18,
+        )
+        image[0:115, 1770:1920] = (48, 56, 74)
+        image[100:280, 1080:1680] = (20, 70, 170)
+        image[180:260, 1180:1560] = (245, 245, 245)
+        image[860:1015, 1240:1580] = cyan_bgr
 
         self.assertIsNotNone(get_starr_nova_hub_back_button_center(image))
         self.assertFalse(is_starr_nova_hub_screen(image))

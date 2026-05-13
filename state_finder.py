@@ -421,7 +421,14 @@ def is_starr_nova_hub_screen(image):
     event_timer = crop_scaled_region(image, [1120, 0, 560, 105])
     skin_card = crop_scaled_region(image, [250, 70, 650, 210])
     bottom_tabs = crop_scaled_region(image, [260, 880, 1400, 200])
-    if top_logo.size == 0 or event_timer.size == 0 or skin_card.size == 0 or bottom_tabs.size == 0:
+    comic_background = crop_scaled_region(image, [900, 110, 880, 650])
+    if (
+            top_logo.size == 0
+            or event_timer.size == 0
+            or skin_card.size == 0
+            or bottom_tabs.size == 0
+            or comic_background.size == 0
+    ):
         return False
 
     logo_white = mask_ratio(top_logo, (0, 0, 165), (179, 105, 255))
@@ -433,11 +440,22 @@ def is_starr_nova_hub_screen(image):
     card_pink = mask_ratio(skin_card, (135, 70, 110), (172, 255, 255))
     bottom_yellow = mask_ratio(bottom_tabs, (18, 80, 120), (42, 255, 255))
     bottom_magenta = mask_ratio(bottom_tabs, (135, 80, 110), (172, 255, 255))
+    bottom_gray = mask_ratio(bottom_tabs, (0, 0, 70), (179, 80, 190))
+    background_gray = mask_ratio(comic_background, (0, 0, 95), (179, 80, 255))
+    background_blue = mask_ratio(comic_background, (95, 70, 70), (125, 255, 255))
 
-    top_event_anchor = timer_black > 0.16 and timer_magenta > 0.004 and timer_cyan > 0.004
+    top_event_anchor = timer_black > 0.20 and timer_magenta > 0.012 and timer_cyan > 0.010
     skin_anchor = card_cyan > 0.012 and card_pink > 0.006
-    bottom_anchor = bottom_yellow > 0.008 or bottom_magenta > 0.012
-    return logo_white > 0.025 and logo_cyan > 0.003 and top_event_anchor and (skin_anchor or bottom_anchor)
+    bottom_anchor = bottom_gray > 0.22 and (bottom_yellow > 0.008 or bottom_magenta > 0.012)
+    comic_anchor = background_gray > 0.34 and background_blue < 0.18
+    return (
+            logo_white > 0.025
+            and logo_cyan > 0.003
+            and top_event_anchor
+            and comic_anchor
+            and skin_anchor
+            and bottom_anchor
+    )
 
 
 def is_starr_nova_info_screen(image):
