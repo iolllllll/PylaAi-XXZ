@@ -98,6 +98,7 @@ def normalize_detected_state(
         match_result_seen=False,
         trophy_result_recorded=False,
         prestige_reward_allowed=True,
+        exact_star_drop_after_match=False,
 ):
     if detected_state == "match_making":
         if previous_state in {"lobby", "match_making"} or match_launch_pending:
@@ -110,6 +111,7 @@ def normalize_detected_state(
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or previous_state in STAR_DROP_STATES
                 or (detected_state == "nova_star_drop" and previous_state == "match" and match_result_seen)
+                or (exact_star_drop_after_match and previous_state == "match")
                 or (trophy_result_recorded and match_result_seen)
         )
         if allowed_context and not match_launch_pending:
@@ -704,6 +706,7 @@ def pyla_main(data):
                 match_result_seen=post_match_context_active,
                 trophy_result_recorded=trophy_result_recorded,
                 prestige_reward_allowed=self.Stage_manager.can_current_brawler_have_prestige_reward(),
+                exact_star_drop_after_match=detected_state in STAR_DROP_STATES,
             )
             if detected_state != "lobby":
                 self.pending_lobby_since = None

@@ -281,6 +281,18 @@ class StateTransitionGuardTests(unittest.TestCase):
             "match",
         )
 
+    def test_exact_star_drop_can_appear_directly_after_match(self):
+        for detected_state in ("star_drop", "daily_star_drop", "nova_star_drop"):
+            with self.subTest(detected_state=detected_state):
+                self.assertEqual(
+                    normalize_detected_state(
+                        detected_state,
+                        previous_state="match",
+                        exact_star_drop_after_match=True,
+                    ),
+                    detected_state,
+                )
+
     def test_nova_star_drop_can_survive_transient_match_after_result(self):
         self.assertEqual(
             normalize_detected_state(

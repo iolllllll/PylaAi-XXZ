@@ -15,7 +15,7 @@ for file in os.listdir(star_drops_path):
     if "star_drop" in file:
         images_with_star_drop.append(file)
 images_with_star_drop.sort(key=lambda name: 0 if name in ("angelic_star_drop.png", "demonic_star_drop.png") else 1)
-STAR_DROP_TEMPLATE_THRESHOLD = 0.97
+STAR_DROP_TEMPLATE_THRESHOLD = 0.99
 
 end_results_path = r"./images/end_results/"
 
@@ -28,6 +28,10 @@ if super_debug:
         os.makedirs(debug_folder)
 
 def is_template_in_region(image, template_path, region, threshold=0.7):
+    return template_match_score_in_region(image, template_path, region) > threshold
+
+
+def template_match_score_in_region(image, template_path, region):
     current_height, current_width = image.shape[:2]
     orig_x, orig_y, orig_width, orig_height = region
     width_ratio, height_ratio = current_width / orig_screen_width, current_height / orig_screen_height
@@ -35,12 +39,20 @@ def is_template_in_region(image, template_path, region, threshold=0.7):
     new_x, new_y = int(orig_x * width_ratio), int(orig_y * height_ratio)
     new_width, new_height = int(orig_width * width_ratio), int(orig_height * height_ratio)
     cropped_image = image[new_y:new_y + new_height, new_x:new_x + new_width]
+    if cropped_image.size == 0:
+        return 0.0
     current_height, current_width = image.shape[:2]
     loaded_template = load_template(template_path, current_width, current_height)
+    if (
+            loaded_template.size == 0
+            or cropped_image.shape[0] < loaded_template.shape[0]
+            or cropped_image.shape[1] < loaded_template.shape[1]
+    ):
+        return 0.0
     result = cv2.matchTemplate(cropped_image, loaded_template,
                                cv2.TM_CCOEFF_NORMED)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-    return max_val > threshold
+    return max_val
 
 cached_templates = {}
 
@@ -830,22 +842,52 @@ def get_star_drop_type(image):
     if is_in_daily_wins_drop(image):
         return "standard"
     for image_filename in images_with_star_drop:
-        if is_template_in_region(
+        match_score = template_match_score_in_region(
                 image,
                 star_drops_path + image_filename,
                 region_data['star_drop'],
-                threshold=STAR_DROP_TEMPLATE_THRESHOLD,
-        ):
-            if image_filename == "angelic_star_drop.png":
-                return "angelic"
-            if image_filename == "demonic_star_drop.png":
-                return "demonic"
-            if image_filename == "starr_nova_star_drop.png":
-                return "starr_nova_hold"
-            if not has_standard_star_drop_screen_context(image):
+        )
+        if match_score <= STAR_DROP_TEMPLATE_THRESHOLD:
+            continue
+        if image_filename in ("angelic_star_drop.png", "demonic_star_drop.png"):
+            if not has_special_star_drop_screen_context(image):
                 return None
-            return "standard"
+            return "angelic" if image_filename == "angelic_star_drop.png" else "demonic"
+        if image_filename == "starr_nova_star_drop.png":
+            if not has_starr_nova_star_drop_screen_context(image):
+                return None
+            return "starr_nova_hold"
+        if not has_standard_star_drop_screen_context(image):
+            return None
+        return "standard"
     return None
+
+
+def has_special_star_drop_screen_context(image):
+    background = crop_scaled_region(image, [0, 0, 1920, 1080])
+    top_title = crop_scaled_region(image, [520, 20, 880, 170])
+    if background.size == 0 or top_title.size == 0:
+        return False
+    purple_ratio = (
+        mask_ratio(background, (124, 55, 70), (168, 255, 255))
+        + mask_ratio(background, (0, 55, 70), (8, 255, 255))
+    )
+    blue_ratio = mask_ratio(background, (86, 55, 70), (126, 255, 255))
+    title_white = mask_ratio(top_title, (0, 0, 160), (179, 95, 255))
+    title_dark = mask_ratio(top_title, (0, 0, 0), (179, 255, 85))
+    return (purple_ratio + blue_ratio) > 0.22 and title_white > 0.025 and title_dark > 0.018
+
+
+def has_starr_nova_star_drop_screen_context(image):
+    background = crop_scaled_region(image, [0, 0, 1920, 1080])
+    center = crop_scaled_region(image, [600, 220, 720, 660])
+    if background.size == 0 or center.size == 0:
+        return False
+    white_ratio = mask_ratio(background, (0, 0, 165), (179, 95, 255))
+    cyan_ratio = mask_ratio(background, (80, 60, 100), (105, 255, 255))
+    magenta_ratio = mask_ratio(background, (135, 60, 100), (172, 255, 255))
+    dark_ratio = mask_ratio(center, (0, 0, 0), (179, 255, 85))
+    return white_ratio > 0.16 and cyan_ratio > 0.018 and magenta_ratio > 0.010 and dark_ratio > 0.008
 
 
 def has_standard_star_drop_screen_context(image):

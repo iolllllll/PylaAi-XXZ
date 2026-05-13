@@ -90,6 +90,17 @@ class StarDropHandlingTests(unittest.TestCase):
 
     def test_starr_nova_template_uses_long_press_type(self):
         image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        image[:] = (245, 245, 245)
+        cyan_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (90, 220, 230), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        magenta_bgr = cv2.cvtColor(
+            np.full((1, 1, 3), (150, 210, 230), dtype=np.uint8),
+            cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        image[80:180, 220:1700] = cyan_bgr
+        image[880:980, 220:1700] = magenta_bgr
         template_path = Path("images/star_drop_types/starr_nova_star_drop.png")
         template = cv2.imread(str(template_path))
         self.assertIsNotNone(template)
@@ -102,6 +113,20 @@ class StarDropHandlingTests(unittest.TestCase):
 
         self.assertEqual(get_star_drop_type(image), "starr_nova_hold")
         self.assertEqual(get_in_game_state(image), "nova_star_drop")
+
+    def test_starr_nova_template_without_screen_context_is_ignored(self):
+        image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        template = cv2.imread("images/star_drop_types/starr_nova_star_drop.png")
+        self.assertIsNotNone(template)
+
+        x, y, w, h = 790, 350, 350, 350
+        th, tw = template.shape[:2]
+        px = x + (w - tw) // 2
+        py = y + (h - th) // 2
+        image[py:py + th, px:px + tw] = template
+
+        self.assertIsNone(get_star_drop_type(image))
+        self.assertNotEqual(get_in_game_state(image), "nova_star_drop")
 
     @patch("stage_manager.time.sleep", return_value=None)
     @patch("stage_manager.get_star_drop_type", return_value="daily_hold")
@@ -178,6 +203,20 @@ class StarDropHandlingTests(unittest.TestCase):
     def test_standard_template_without_drop_background_is_ignored(self):
         image = np.zeros((1080, 1920, 3), dtype=np.uint8)
         template = cv2.imread("images/star_drop_types/star_drop.png")
+        self.assertIsNotNone(template)
+
+        x, y, w, h = 790, 350, 350, 350
+        th, tw = template.shape[:2]
+        px = x + (w - tw) // 2
+        py = y + (h - th) // 2
+        image[py:py + th, px:px + tw] = template
+
+        self.assertIsNone(get_star_drop_type(image))
+        self.assertNotEqual(get_in_game_state(image), "star_drop")
+
+    def test_special_template_without_drop_context_is_ignored(self):
+        image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        template = cv2.imread("images/star_drop_types/angelic_star_drop.png")
         self.assertIsNotNone(template)
 
         x, y, w, h = 790, 350, 350, 350
