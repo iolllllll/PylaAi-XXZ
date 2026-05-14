@@ -1,4 +1,4 @@
-﻿# PylaAi-XXZ
+# PylaAi-XXZ
 
 This fork focuses on **Showdown** (trio). Other game modes still run off the upstream logic, but development effort and tuning here go into making Showdown play well end-to-end.
 
@@ -66,6 +66,13 @@ Recovery features :
 - If the Brawl Stars Idle Disconnect / Reload dialog appears, the bot presses Reload.
 - If the scrcpy video feed freezes, the bot restarts the scrcpy feed instead of repeatedly restarting Brawl Stars.
 - While the bot is running, a small `PylaAi-XXZ Control` window lets you pause and resume movement safely.
+
+
+Web runtime dashboard :
+- PylaAi-XXZ starts a local web dashboard together with the bot when `webapp_enabled = true` in `cfg/general_config.toml`.
+- Open `http://127.0.0.1:8765` on the bot PC to see live IPS, ONNX backend, runtime state, local config parameters, and pause/resume/restart controls.
+- To expose it to other devices on your LAN, set `webapp_allow_lan = true` (or `webapp_host = "0.0.0.0"`) and keep `webapp_port` at the port you want to use. The console prints the local-network URL when LAN access is enabled.
+- Only expose this on a trusted private network because the dashboard includes bot controls and local configuration values.
 
 Discord webhook and remote control :
 - Open `cfg/discord_config.toml`.
@@ -149,6 +156,11 @@ Devs :
 
 # Run tests
 Run `python -m unittest discover` to check if your changes have made any regressions. 
+
+# Runtime IPS / smarter combat
+PylaAi-XXZ keeps wall detections in memory and, by default, uses adaptive wall detection in Showdown. When no enemy is visible and the last wall map is still usable, the expensive wall ONNX model is refreshed less often; when an enemy appears, no walls are known, or wall-stuck recovery is active, it returns to the faster interval. This is controlled in `cfg/bot_config.toml` with `adaptive_wall_detection`, `wall_detection_slow_interval`, `wall_detection_enemy_interval`, and `wall_detection_no_wall_interval`.
+
+The bot also keeps a very short enemy memory. If vision drops an enemy for a fraction of a second, movement can continue using the last known position plus smoothed velocity prediction. This helps prevent twitchy roam/follow decisions during detection flicker without firing at invisible targets. Tune it with `enemy_memory_enabled`, `enemy_memory_seconds`, `enemy_memory_prediction_seconds`, and `enemy_memory_min_confidence`.
 
 # Performance profile
 If the bot drops to 1-3 IPS while Python CPU usage is low, first apply the safe capture profile and restart:

@@ -1,3 +1,4 @@
+import json
 import os
 import platform
 import warnings
@@ -37,6 +38,15 @@ def get_optimal_threads(max_limit=4):
 _provider_message_printed = False
 
 
+def _config_bool(config, key, default=False):
+    value = config.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
+
+
 def _directml_provider():
     device_id = load_toml_as_dict("cfg/general_config.toml").get("directml_device_id", "auto")
     if str(device_id).strip().lower() in ("", "auto", "none"):
@@ -48,21 +58,62 @@ def _directml_provider():
         return "DmlExecutionProvider"
 
 
+def _optional_int(value):
+    if str(value).strip().lower() in ("", "auto", "none"):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tensorrt_provider():
+    general_config = load_toml_as_dict("cfg/general_config.toml")
+    cache_dir = os.path.join("logs", "tensorrt_engine_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    device_id = _optional_int(general_config.get("tensorrt_device_id", general_config.get("cuda_device_id", "auto")))
+    workspace_size = _optional_int(general_config.get("tensorrt_workspace_size", "auto"))
+    options = {
+        "trt_fp16_enable": _config_bool(general_config, "tensorrt_fp16", True),
+        "trt_engine_cache_enable": True,
+        "trt_engine_cache_path": cache_dir,
+        "trt_timing_cache_enable": True,
+        "trt_timing_cache_path": cache_dir,
+    }
+    if device_id is not None:
+        options["device_id"] = device_id
+    if workspace_size is not None:
+        options["trt_max_workspace_size"] = workspace_size
+    return ("TensorrtExecutionProvider", options)
+
+
+def _cuda_provider():
+    general_config = load_toml_as_dict("cfg/general_config.toml")
+    options = {
+        "cudnn_conv_algo_search": "EXHAUSTIVE",
+    }
+    device_id = _optional_int(general_config.get("cuda_device_id", "auto"))
+    if device_id is not None:
+        options["device_id"] = device_id
+    return ("CUDAExecutionProvider", options)
+
+
 def _build_providers(preferred_device):
     global _provider_message_printed
     preferred_device = str(preferred_device or "auto").strip().lower()
     available_providers = set(ort.get_available_providers())
     providers = []
 
-    if preferred_device in ("gpu", "auto", "cuda"):
+    if preferred_device in ("tensorrt", "trt"):
+        if "TensorrtExecutionProvider" in available_providers:
+            providers.append(_tensorrt_provider())
+        else:
+            print("TensorRT requested, but TensorrtExecutionProvider is not available. Falling back to CUDA/CPU.")
+
+    if preferred_device in ("gpu", "auto", "cuda", "tensorrt", "trt"):
         if "CUDAExecutionProvider" in available_providers:
-            cuda_provider = (
-                "CUDAExecutionProvider",
-                {
-                    "cudnn_conv_algo_search": "DEFAULT",
-                },
-            )
-            providers.append(cuda_provider)
+            providers.append(_cuda_provider())
 
     if preferred_device in ("gpu", "auto", "directml", "dml"):
         if "DmlExecutionProvider" in available_providers and not providers:
@@ -96,6 +147,32 @@ def _build_providers(preferred_device):
 
 def _provider_name(provider):
     return provider[0] if isinstance(provider, tuple) else provider
+
+
+
+
+def format_onnx_backend(provider_name):
+    provider_labels = {
+        "TensorrtExecutionProvider": "TensorrtExecutionProvider",
+        "CUDAExecutionProvider": "CUDAExecutionProvider",
+        "CPUExecutionProvider": "CPUExecutionProvider",
+        "DmlExecutionProvider": "DirectML",
+        "OpenVINOExecutionProvider": "OpenVINO",
+    }
+    return provider_labels.get(provider_name, "unknown")
+
+
+def _preferred_profile_provider(provider_counts):
+    for provider_name in (
+        "TensorrtExecutionProvider",
+        "CUDAExecutionProvider",
+        "DmlExecutionProvider",
+        "OpenVINOExecutionProvider",
+        "CPUExecutionProvider",
+    ):
+        if provider_counts.get(provider_name, 0) > 0:
+            return provider_name
+    return None
 
 
 def _configure_session_options_for_provider(session_options, provider_name):
@@ -192,6 +269,9 @@ class Detect:
         self.classes = classes
         self.ignore_classes = set(ignore_classes) if ignore_classes else set()
         self.input_size = input_size
+        self.verified_device = None
+        self.profile_provider_counts = {}
+        self._profile_checked = False
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found: {model_path}")
@@ -214,6 +294,11 @@ class Detect:
         providers = _build_providers(self.preferred_device)
         first_provider = _provider_name(providers[0])
         _configure_session_options_for_provider(so, first_provider)
+        if first_provider != "CPUExecutionProvider":
+            so.enable_profiling = True
+            os.makedirs("logs", exist_ok=True)
+            model_name = os.path.splitext(os.path.basename(self.model_path))[0]
+            so.profile_file_prefix = os.path.join("logs", f"ort_profile_{model_name}")
         optimal_threads_amount = get_optimal_threads()
         if first_provider == "CPUExecutionProvider":
             so.intra_op_num_threads = optimal_threads_amount
@@ -222,7 +307,50 @@ class Detect:
             so.intra_op_num_threads = 1
             so.inter_op_num_threads = 1
         model = ort.InferenceSession(self.model_path, sess_options=so, providers=providers)
-        return model, model.get_providers()[0]
+        selected_provider = model.get_providers()[0]
+        if selected_provider == "CPUExecutionProvider":
+            self.verified_device = selected_provider
+            self._profile_checked = True
+        return model, selected_provider
+
+    def get_backend_provider(self):
+        return self.verified_device or "unknown"
+
+    def _record_profiled_provider(self):
+        if self._profile_checked:
+            return
+        self._profile_checked = True
+        profile_path = None
+        try:
+            profile_path = self.model.end_profiling()
+            with open(profile_path, "r", encoding="utf-8") as f:
+                events = json.load(f)
+            provider_counts = {}
+            for event in events:
+                provider_name = event.get("args", {}).get("provider")
+                if provider_name:
+                    provider_counts[provider_name] = provider_counts.get(provider_name, 0) + 1
+            self.profile_provider_counts = provider_counts
+            self.verified_device = _preferred_profile_provider(provider_counts)
+            if self.verified_device:
+                counts = ", ".join(f"{provider}={count}" for provider, count in sorted(provider_counts.items()))
+                print(f"Verified ONNX execution for {os.path.basename(self.model_path)}: {self.verified_device} ({counts})")
+            else:
+                print(
+                    f"Could not verify ONNX execution provider for {os.path.basename(self.model_path)}. "
+                    "Keeping ONNX backend as unknown instead of stopping the bot."
+                )
+        except Exception as e:
+            print(
+                f"Could not read ONNX Runtime profile for {os.path.basename(self.model_path)}: {e}. "
+                "Keeping ONNX backend as unknown instead of stopping the bot."
+            )
+        finally:
+            if profile_path and os.path.exists(profile_path):
+                try:
+                    os.remove(profile_path)
+                except OSError:
+                    pass
 
     def preprocess_image(self, img):
         h, w = img.shape[:2]
@@ -267,6 +395,7 @@ class Detect:
         orig_h, orig_w = img.shape[:2]
         preprocessed_img, resized_w, resized_h = self.preprocess_image(img)
         outputs = self.model.run(self.output_names, {self.input_name: preprocessed_img})
+        self._record_profiled_provider()
         detections = self.postprocess(outputs, (orig_h, orig_w), (resized_w, resized_h), conf_tresh)
 
         results = {}
