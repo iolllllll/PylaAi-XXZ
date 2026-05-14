@@ -1,5 +1,6 @@
-﻿import asyncio
+import asyncio
 import gc
+import json
 import os
 import platform
 import sys
@@ -31,6 +32,7 @@ from state_finder import (
     is_starr_nova_info_screen,
 )
 from telegram_control import TelegramControlServer
+from local_webapp import LocalWebAppServer
 from time_management import TimeManagement
 from utils import (
     api_base_url,
@@ -154,6 +156,7 @@ def pyla_main(data):
         def __init__(self):
             self.window_controller = WindowController()
             self.Play = Play(*self.load_models(), self.window_controller)
+            self.onnx_backend = self.Play.get_onnx_backend_status()
             self.Time_management = TimeManagement()
             self.lobby_automator = LobbyAutomation(self.window_controller)
             self.Stage_manager = StageManager(data, self.lobby_automator, self.window_controller)
@@ -289,6 +292,12 @@ def pyla_main(data):
                 status_provider=self.telegram_status,
             )
             self.telegram_control.start()
+            self.webapp_server = LocalWebAppServer(
+                self.control_window.state_path,
+                status_provider=self.telegram_status,
+                restart_game_callback=self.restart_brawl_stars,
+            )
+            self.webapp_server.start()
             self.was_paused = False
             self.pause_started_at = None
 
@@ -308,6 +317,22 @@ def pyla_main(data):
                 "brawler": current.get("brawler", ""),
                 "target": current.get("push_until", ""),
             }
+
+        def format_performance_status(self, ips):
+            return f"{float(ips):.2f} IPS | ONNX: {self.onnx_backend or 'unknown'}"
+
+        def write_web_runtime_state(self):
+            self.onnx_backend = self.Play.get_onnx_backend_status()
+            payload = {
+                "state": self.state or "unknown",
+                "ips": f"{self.ips_ema:.2f}" if self.ips_ema is not None else "",
+                "feedFps": f"{self.perf_feed_fps:.2f}",
+                "onnxBackend": self.onnx_backend,
+                "performanceStatus": self.format_performance_status(self.ips_ema or 0),
+            }
+            os.makedirs("logs", exist_ok=True)
+            with open(os.path.join("logs", "web_runtime.json"), "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
 
         @staticmethod
         def load_models():
@@ -987,10 +1012,12 @@ def pyla_main(data):
 
                 if abs(s_time - time.time()) > 1:
                     elapsed = time.time() - s_time
-                    if elapsed > 0 and not self.visual_debug:
+                    if elapsed > 0 and not self.visual_debug and (c > 0 or self.ips_ema is not None):
                         current_ips = c / elapsed
                         self.ips_ema = current_ips if self.ips_ema is None else (self.ips_ema * 0.75 + current_ips * 0.25)
-                        print(f"{self.ips_ema:.2f} IPS")
+                        self.onnx_backend = self.Play.get_onnx_backend_status()
+                        print(self.format_performance_status(self.ips_ema))
+                        self.write_web_runtime_state()
                         if self.recover_low_ips(self.ips_ema):
                             s_time = time.time()
                             c = 0
@@ -1088,6 +1115,7 @@ def pyla_main(data):
 
             self.discord_control.close()
             self.telegram_control.close()
+            self.webapp_server.close()
             self.control_window.close()
 
     main = Main()

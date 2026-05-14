@@ -1,7 +1,19 @@
-﻿import sys
+import sys
 import platform
 import subprocess
 import os
+
+CUDA_RUNTIME_REQS = [
+    "nvidia-cublas-cu12",
+    "nvidia-cuda-nvrtc-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-nvjitlink-cu12",
+]
+
+TENSORRT_REQS = [
+    "tensorrt-cu12",
+]
 
 if platform.system() != "Windows" or "microsoft" in platform.uname()[3].lower():
     print("\n" + "!"*50)
@@ -32,6 +44,12 @@ def force_install(reqs, no_deps=False):
     if no_deps: cmd += ["--force-reinstall", "--no-deps"]
     subprocess.check_call(cmd + reqs)
 
+def install_cuda_runtime_dependencies():
+    force_install(CUDA_RUNTIME_REQS)
+
+def install_tensorrt_dependencies():
+    force_install(TENSORRT_REQS)
+
 def remove_onnxruntime_variants():
     subprocess.run([
         sys.executable, "-m", "pip", "uninstall", "-y",
@@ -41,6 +59,37 @@ def remove_onnxruntime_variants():
 def install_onnxruntime_variant(req):
     remove_onnxruntime_variants()
     force_install([req])
+
+def get_configured_acceleration():
+    config_path = os.path.join("cfg", "general_config.toml")
+    if not os.path.exists(config_path):
+        return None
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            for line in f:
+                key, separator, value = line.partition("=")
+                if separator and key.strip() == "cpu_or_gpu":
+                    return value.split("#", 1)[0].strip().strip('"\'').lower() or None
+    except OSError as e:
+        print(f"Could not read {config_path}: {e}. Falling back to interactive acceleration selection.")
+    return None
+
+def nvidia_torch_command(ver):
+    if ver >= 10.0: # 50-Series Blackwell
+        return ["--pre", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/nightly/cu128"], "CUDA 12.8 (Blackwell)"
+    if ver >= 8.9: # 40-Series Ada
+        return ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"], "CUDA 12.4 (Ada)"
+    return ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu121"], "CUDA 12.1 (Standard)"
+
+def install_nvidia_cuda_stack(ver, use_tensorrt=False):
+    torch_cmd, status_accel = nvidia_torch_command(ver)
+    force_install(torch_cmd)
+    install_onnxruntime_variant("onnxruntime-gpu")
+    install_cuda_runtime_dependencies()
+    if use_tensorrt:
+        install_tensorrt_dependencies()
+        status_accel = f"TensorRT + {status_accel}"
+    return status_accel
 
 def get_gpu_data():
     """Detects exact NVIDIA/AMD/Intel architecture for Windows."""
@@ -87,6 +136,7 @@ def setup_pyla():
 
     target, ver, name = get_gpu_data()
     status_pytorch, status_accel = "CPU Edition", "N/A"
+    configured_accel = get_configured_acceleration()
     
     # We will use this flag to check if we need the standard CPU onnxruntime
     onnx_installed = False
@@ -96,25 +146,28 @@ def setup_pyla():
     # NVIDIA BRANCH (Series 10-50)
     if target == "nvidia":
         print(f"\n NVIDIA: {name} detected.")
-        if os.environ.get("PYLAAI_SETUP_AUTO", "").strip().lower() in ("1", "true", "yes"):
+        if configured_accel in ("tensorrt", "trt"):
+            print("\nConfig setup: installing NVIDIA TensorRT CUDA acceleration.")
+            status_accel = install_nvidia_cuda_stack(ver, use_tensorrt=True)
+            onnx_installed = True
+            status_pytorch = "CUDA/TensorRT Edition"
+        elif configured_accel in ("cuda", "gpu"):
+            print("\nConfig setup: installing NVIDIA CUDA acceleration.")
+            status_accel = install_nvidia_cuda_stack(ver, use_tensorrt=False)
+            onnx_installed = True
+            status_pytorch = "CUDA Edition"
+        elif os.environ.get("PYLAAI_SETUP_AUTO", "").strip().lower() in ("1", "true", "yes"):
             print("\nAuto setup: installing DirectML GPU acceleration for NVIDIA Windows systems.")
             install_onnxruntime_variant("onnxruntime-directml")
             onnx_installed = True
             status_pytorch = "DirectML Edition"
             status_accel = "DirectML"
+        elif ask_user("Install NVIDIA TensorRT acceleration? (first run may spend time building an engine cache)"):
+            status_accel = install_nvidia_cuda_stack(ver, use_tensorrt=True)
+            onnx_installed = True
+            status_pytorch = "CUDA/TensorRT Edition"
         elif ask_user("Install NVIDIA CUDA acceleration? (takes more storage but gives you more ips, about 2GB)"):
-            if ver >= 10.0: # 50-Series Blackwell
-                torch_cmd = ["--pre", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/nightly/cu128"]
-                status_accel = "CUDA 12.8 (Blackwell)"
-            elif ver >= 8.9: # 40-Series Ada
-                torch_cmd = ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"]
-                status_accel = "CUDA 12.4 (Ada)"
-            else: # 10/20/30-Series
-                torch_cmd = ["torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu121"]
-                status_accel = "CUDA 12.1 (Standard)"
-            
-            force_install(torch_cmd)
-            install_onnxruntime_variant("onnxruntime-gpu")
+            status_accel = install_nvidia_cuda_stack(ver, use_tensorrt=False)
             onnx_installed = True
             status_pytorch = "CUDA Edition"
         elif ask_user("Install DirectML GPU acceleration instead? (smaller, works on most Windows GPUs)"):
