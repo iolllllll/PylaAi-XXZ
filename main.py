@@ -32,7 +32,7 @@ from state_finder import (
     is_starr_nova_info_screen,
 )
 from telegram_control import TelegramControlServer
-from webapp import LocalWebAppServer
+from local_webapp import LocalWebAppServer
 from time_management import TimeManagement
 from utils import (
     api_base_url,

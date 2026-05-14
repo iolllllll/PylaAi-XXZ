@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from runtime_control import PAUSED, RUNNING, write_state
-from webapp import LocalWebAppServer, webapp_settings
+from local_webapp import LocalWebAppServer, webapp_settings
 
 
 class WebAppTests(unittest.TestCase):
