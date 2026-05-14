@@ -29,6 +29,34 @@ class StateTransitionGuardTests(unittest.TestCase):
                     "match",
                 )
 
+    def test_out_of_match_rewards_are_allowed_from_match_after_recent_trophy_change(self):
+        self.assertEqual(
+            normalize_detected_state(
+                "trophy_reward",
+                previous_state="match",
+                recent_trophy_change=True,
+            ),
+            "trophy_reward",
+        )
+        self.assertEqual(
+            normalize_detected_state(
+                "prestige_reward",
+                previous_state="match",
+                recent_trophy_change=True,
+                prestige_reward_allowed=True,
+            ),
+            "prestige_reward",
+        )
+        self.assertEqual(
+            normalize_detected_state(
+                "prestige_reward",
+                previous_state="match",
+                recent_trophy_change=True,
+                prestige_reward_allowed=False,
+            ),
+            "match",
+        )
+
     def test_prestige_reward_does_not_rearm_after_falling_back_to_match(self):
         self.assertEqual(
             normalize_detected_state(

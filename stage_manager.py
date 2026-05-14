@@ -123,6 +123,17 @@ class StageManager:
                 and getattr(self, "last_match_crossed_1000", False)
         )
 
+    def had_recent_trophy_change(self, seconds=30.0):
+        changed_at = max(
+            float(getattr(self, "last_recorded_result_time", 0.0) or 0.0),
+            float(getattr(self, "time_since_last_stat_change", 0.0) or 0.0),
+        )
+        if changed_at <= 0:
+            return False
+        if time.time() - changed_at > seconds:
+            return False
+        return int(getattr(self, "last_match_trophy_delta", 0) or 0) != 0
+
     def reset_prestige_reward_gate(self):
         self.last_match_trophy_before = None
         self.last_match_trophy_after = None

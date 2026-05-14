@@ -97,6 +97,7 @@ def normalize_detected_state(
         match_launch_pending=False,
         match_result_seen=False,
         trophy_result_recorded=False,
+        recent_trophy_change=False,
         prestige_reward_allowed=True,
         exact_star_drop_after_match=False,
 ):
@@ -133,6 +134,7 @@ def normalize_detected_state(
                 or previous_state in TROPHY_REWARD_FOLLOWUP_STATES
                 or (previous_state == "lobby" and lobby_seen_since_match)
                 or (trophy_result_recorded and match_result_seen)
+                or (previous_state == "match" and recent_trophy_change)
         )
         if not allowed_context:
             return previous_state or "match"
@@ -688,6 +690,7 @@ def pyla_main(data):
                     0 < now - getattr(self.Stage_manager, "last_recorded_result_time", 0.0)
                     <= self.post_match_reward_window_seconds
             )
+            recent_trophy_change = self.Stage_manager.had_recent_trophy_change(seconds=30.0)
             reward_chain_active = (
                     self.reward_chain_seen
                     or previous_state is None
@@ -705,6 +708,7 @@ def pyla_main(data):
                 match_launch_pending=self.match_launch_pending,
                 match_result_seen=post_match_context_active,
                 trophy_result_recorded=trophy_result_recorded,
+                recent_trophy_change=recent_trophy_change,
                 prestige_reward_allowed=self.Stage_manager.can_current_brawler_have_prestige_reward(),
                 exact_star_drop_after_match=detected_state in STAR_DROP_STATES,
             )

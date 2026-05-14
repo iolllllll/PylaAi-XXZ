@@ -1,4 +1,5 @@
 import unittest
+import time
 from unittest.mock import patch
 
 import cv2
@@ -263,6 +264,22 @@ class PrestigeRewardTests(unittest.TestCase):
 
                 self.assertEqual(manager.window_controller.clicks, [])
                 self.assertEqual(manager.window_controller.presses, [])
+
+    def test_recent_trophy_change_requires_real_delta_and_expires(self):
+        manager = object.__new__(StageManager)
+        manager.last_recorded_result_time = time.time()
+        manager.time_since_last_stat_change = time.time()
+        manager.last_match_trophy_delta = 5
+
+        self.assertTrue(manager.had_recent_trophy_change(seconds=30.0))
+
+        manager.last_match_trophy_delta = 0
+        self.assertFalse(manager.had_recent_trophy_change(seconds=30.0))
+
+        manager.last_match_trophy_delta = 5
+        manager.last_recorded_result_time = time.time() - 31
+        manager.time_since_last_stat_change = time.time() - 31
+        self.assertFalse(manager.had_recent_trophy_change(seconds=30.0))
 
     def test_team_invite_reject_releases_movement_and_uses_adb_fallback(self):
         manager = object.__new__(StageManager)
