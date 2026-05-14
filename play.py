@@ -1,4 +1,4 @@
-﻿import math
+import math
 import json
 import os
 import random
@@ -8,7 +8,7 @@ import time
 import cv2
 import numpy as np
 from state_finder import get_state
-from detect import Detect
+from detect import Detect, format_onnx_backend
 from utils import load_toml_as_dict, count_hsv_pixels, load_brawlers_info
 
 brawl_stars_width, brawl_stars_height = 1920, 1080
@@ -45,6 +45,19 @@ class Movement:
         self.gadget_treshold = time_config["gadget"]
         self.hypercharge_treshold = time_config["hypercharge"]
         self.walls_treshold = time_config["wall_detection"]
+        self.adaptive_wall_detection = str(bot_config.get("adaptive_wall_detection", "yes")).lower() in ("yes", "true", "1")
+        self.wall_detection_slow_interval = max(
+            self.walls_treshold,
+            float(bot_config.get("wall_detection_slow_interval", self.walls_treshold * 1.75)),
+        )
+        self.wall_detection_no_wall_interval = max(
+            0.1,
+            float(bot_config.get("wall_detection_no_wall_interval", min(self.walls_treshold, 0.5))),
+        )
+        self.wall_detection_enemy_interval = max(
+            0.1,
+            float(bot_config.get("wall_detection_enemy_interval", self.walls_treshold)),
+        )
         self.keep_walls_in_memory = self.walls_treshold <= 1
         self.last_walls_data = []
         self.keys_hold = []
@@ -575,6 +588,13 @@ class Play(Movement):
         self.playstyle_code = None
         self._playstyle_error_reported = False
         self.load_playstyle()
+
+    def get_onnx_backend_status(self):
+        for detector in (self.Detect_main_info, self.Detect_tile_detector):
+            backend = format_onnx_backend(detector.get_backend_provider())
+            if backend != "unknown":
+                return backend
+        return "unknown"
 
     def load_playstyle(self):
         if not self.playstyle_name:
@@ -2129,6 +2149,26 @@ class Play(Movement):
         tile_data = self.Detect_tile_detector.detect_objects(frame, conf_tresh=self.wall_detection_confidence)
         return tile_data
 
+    def wall_detection_interval(self, data):
+        if not self.adaptive_wall_detection:
+            return self.walls_treshold
+        if not data.get("player"):
+            return self.wall_detection_slow_interval
+        if data.get("enemy"):
+            return self.wall_detection_enemy_interval
+        if not self.last_walls_data:
+            return self.wall_detection_no_wall_interval
+        if self.wall_stuck_state.get("stationary_since") is not None:
+            return self.walls_treshold
+        return self.wall_detection_slow_interval
+
+    def should_refresh_wall_data(self, data, current_time):
+        if not self.should_detect_walls:
+            return False
+        if not data.get("player"):
+            return False
+        return current_time - self.time_since_walls_checked > self.wall_detection_interval(data)
+
     @staticmethod
     def normalize_box(box):
         x1, y1, x2, y2 = box[:4]
@@ -2434,7 +2474,7 @@ class Play(Movement):
         current_time = time.time()
         raw_data = self.get_main_data(frame)
         data = raw_data
-        if self.should_detect_walls and current_time - self.time_since_walls_checked > self.walls_treshold:
+        if self.should_refresh_wall_data(data, current_time):
 
             tile_data = self.get_tile_data(frame)
 
