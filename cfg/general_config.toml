@@ -33,3 +33,7 @@ mumu_manager_path = ""
 ldplayer_console_path = ""
 api_base_url = "default"
 brawl_stars_package = "com.supercell.brawlstars"
+webapp_enabled = true
+webapp_host = ""
+webapp_port = 8765
+webapp_allow_lan = false

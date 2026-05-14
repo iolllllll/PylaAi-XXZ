@@ -32,6 +32,7 @@ from state_finder import (
     is_starr_nova_info_screen,
 )
 from telegram_control import TelegramControlServer
+from webapp import LocalWebAppServer
 from time_management import TimeManagement
 from utils import (
     api_base_url,
@@ -291,6 +292,12 @@ def pyla_main(data):
                 status_provider=self.telegram_status,
             )
             self.telegram_control.start()
+            self.webapp_server = LocalWebAppServer(
+                self.control_window.state_path,
+                status_provider=self.telegram_status,
+                restart_game_callback=self.restart_brawl_stars,
+            )
+            self.webapp_server.start()
             self.was_paused = False
             self.pause_started_at = None
 
@@ -1108,6 +1115,7 @@ def pyla_main(data):
 
             self.discord_control.close()
             self.telegram_control.close()
+            self.webapp_server.close()
             self.control_window.close()
 
     main = Main()
