@@ -1,4 +1,4 @@
-﻿import math
+import math
 import json
 import os
 import random
@@ -8,7 +8,7 @@ import time
 import cv2
 import numpy as np
 from state_finder import get_state
-from detect import Detect
+from detect import Detect, format_onnx_backend
 from utils import load_toml_as_dict, count_hsv_pixels, load_brawlers_info
 
 brawl_stars_width, brawl_stars_height = 1920, 1080
@@ -575,6 +575,13 @@ class Play(Movement):
         self.playstyle_code = None
         self._playstyle_error_reported = False
         self.load_playstyle()
+
+    def get_onnx_backend_status(self):
+        for detector in (self.Detect_main_info, self.Detect_tile_detector):
+            backend = format_onnx_backend(detector.get_backend_provider())
+            if backend != "unknown":
+                return backend
+        return "unknown"
 
     def load_playstyle(self):
         if not self.playstyle_name:
