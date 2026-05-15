@@ -62,98 +62,480 @@ INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PylaAi-XXZ Web Runtime</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, Arial, sans-serif; background: #101014; color: #f4f4f5; }
-    body { margin: 0; padding: 24px; }
-    main { max-width: 1120px; margin: 0 auto; display: grid; gap: 16px; }
-    .card { background: #1b1b22; border: 1px solid #2f2f3a; border-radius: 14px; padding: 18px; box-shadow: 0 10px 30px #0005; }
-    h1, h2 { margin: 0 0 12px; }
-    .status { font-size: clamp(28px, 6vw, 56px); font-weight: 800; line-height: 1.05; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-    .metric { background: #24242d; border-radius: 10px; padding: 12px; }
-    .label { color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-    .value { font-size: 22px; font-weight: 700; margin-top: 4px; word-break: break-word; }
-    button { border: 0; border-radius: 10px; padding: 11px 16px; font-weight: 800; color: #111; background: #a7f3d0; cursor: pointer; margin-right: 8px; margin-bottom: 8px; }
-    button.stop { background: #fecaca; }
-    button.restart { background: #fde68a; }
-    pre { white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; background: #101014; padding: 12px; border-radius: 10px; }
-    a { color: #93c5fd; }
-  </style>
+  <title>Amethyst Webapp</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<main>
-  <section class="card">
-    <h1>PylaAi-XXZ Web Runtime</h1>
-    <div id="performance" class="status">Loading...</div>
-  </section>
-  <section class="card">
-    <h2>Control</h2>
-    <button onclick="control('resume')">Resume</button>
-    <button class="stop" onclick="control('pause')">Pause</button>
-    <button class="restart" onclick="control('restart_game')">Restart game</button>
-    <span id="controlResult"></span>
-  </section>
-  <section class="card">
-    <h2>Runtime</h2>
-    <div class="grid" id="metrics"></div>
-  </section>
-  <section class="card">
-    <h2>All local parameters</h2>
-    <pre id="config">Loading...</pre>
-  </section>
-</main>
-<script>
-const metricKeys = ['state', 'runtimeControl', 'ips', 'feed_fps', 'feedFps', 'onnxBackend', 'emulator', 'adb_device', 'brawler', 'target'];
-function renderMetrics(data) {
-  const metrics = document.getElementById('metrics');
-  metrics.innerHTML = '';
-  metricKeys.forEach((key) => {
-    const value = data[key];
-    if (value === undefined || value === null || value === '') return;
-    const el = document.createElement('div');
-    el.className = 'metric';
-    el.innerHTML = `<div class="label">${key}</div><div class="value">${value}</div>`;
-    metrics.appendChild(el);
-  });
-}
-async function refresh() {
-  try {
-    const runtime = await fetch('/api/runtime').then((r) => r.json());
-    document.getElementById('performance').textContent = runtime.performanceStatus || `${runtime.ips || '0.00'} IPS | ONNX: ${runtime.onnxBackend || 'unknown'}`;
-    renderMetrics(runtime);
-  } catch (e) {
-    document.getElementById('performance').textContent = 'Runtime unavailable';
-  }
-}
-async function refreshConfig() {
-  try {
-    const cfg = await fetch('/api/config').then((r) => r.json());
-    document.getElementById('config').textContent = JSON.stringify(cfg, null, 2);
-  } catch (e) {
-    document.getElementById('config').textContent = 'Config unavailable';
-  }
-}
-async function control(action) {
-  const result = document.getElementById('controlResult');
-  result.textContent = 'Sending...';
-  try {
-    const response = await fetch('/api/control', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action})});
-    const data = await response.json();
-    result.textContent = data.ok ? `OK: ${data.state || data.action}` : `Error: ${data.error}`;
-    refresh();
-  } catch (e) {
-    result.textContent = `Error: ${e}`;
-  }
-}
-refresh();
-refreshConfig();
-setInterval(refresh, 1000);
-</script>
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">A</div><span>Amethyst</span></div>
+    <nav>
+      <button class="nav active" data-view="dashboard"><span>#</span><b data-i18n="dashboard">Dashboard</b></button>
+      <button class="nav" data-view="multi"><span>∞</span><b>Multi-Instance</b></button>
+      <button class="nav" data-view="brawlers"><span>=</span><b data-i18n="brawlers">Brawlers</b></button>
+      <button class="nav" data-view="playstyles"><span>*</span><b data-i18n="playstyles">Playstyles</b></button>
+      <button class="nav" data-view="history"><span>+</span><b data-i18n="history">History</b></button>
+      <button class="nav" data-view="logging"><span>@</span><b data-i18n="logging">Logging</b></button>
+      <button class="nav" data-view="settings"><span>:</span><b data-i18n="settings">Settings</b></button>
+    </nav>
+  </aside>
+
+  <main class="app">
+    <header class="topbar">
+      <div><h1 id="pageTitle">Dashboard</h1></div>
+      <div class="top-actions"><span id="webappStatus" class="pill">Connecting...</span></div>
+    </header>
+
+    <section id="dashboard" class="view active">
+      <div class="grid two">
+        <div class="panel hero-run">
+          <div class="runbox">
+            <div class="eyebrow">RUNTIME</div>
+            <button id="startBtn" class="start">&gt; <span>START</span></button>
+            <p id="startHint">Runtime controls are connected to the local bot state.</p>
+          </div>
+        </div>
+        <div class="panel" id="activePlaystyle"></div>
+      </div>
+      <div id="runtimePanel" class="session-panel"></div>
+    </section>
+
+    <section id="multi" class="view">
+      <div class="multi-toolbar panel">
+        <div>
+          <div class="eyebrow">MULTI-INSTANCE HUB</div>
+          <h2>LDPlayer windows</h2>
+          <p>Local dashboard compatibility view. Multi-worker management can be wired to the same API later.</p>
+        </div>
+        <div class="multi-actions">
+          <button id="multiScan" class="secondary">Scan ADB</button>
+          <button id="multiStartNext" class="primary">Start Next</button>
+          <button id="multiResumeAll" class="secondary">Resume All</button>
+          <button id="multiPauseAll" class="secondary">Pause All</button>
+          <button id="multiStopAll" class="secondary danger-soft">Stop All</button>
+        </div>
+      </div>
+      <div id="multiDevices" class="multi-devices"></div>
+      <div id="multiGrid" class="multi-grid"></div>
+      <div class="panel multi-log-panel">
+        <div class="panel-head"><div><div class="eyebrow">INSTANCE LOGS</div><h2 id="multiLogTitle">Select instance</h2></div><button id="multiCopyLog" class="secondary">Copy Log</button></div>
+        <pre id="multiLogs" class="multi-logs">Logs will appear here...</pre>
+      </div>
+    </section>
+
+    <section id="brawlers" class="view">
+      <div class="grid brawler-layout">
+        <div class="panel">
+          <div class="panel-head"><div><div class="eyebrow">BRAWLER QUEUE</div><h2>Select a brawler and add it to the run order</h2></div><div class="player-card"><b id="playerName">Player</b><small id="playerTag"></small></div></div>
+          <label>SEARCH BRAWLERS</label>
+          <input id="brawlerSearch" class="input wide" placeholder="Search by brawler name">
+          <label>PLAYER TAG</label>
+          <input id="playerTagInput" class="input wide" placeholder="#PLAYER">
+          <div class="player-actions"><button id="loadQueue" class="secondary">Sync Player</button><span class="player-actions-spacer"></span><button id="pushAllBtn" type="button" class="secondary glow-action">Push all</button></div>
+          <label class="check multi-brawler-toggle"><input id="brawlersMultiMode" type="checkbox"><span><b>Multi Instance</b><br>Separate tag, sync and queue for each LDPlayer window.</span></label>
+          <div id="brawlerInstanceTabs" class="brawler-instance-tabs" hidden></div>
+          <p id="playerLoadStatus" class="tiny-status"></p>
+          <div id="brawlerGrid" class="brawler-grid"></div>
+        </div>
+        <aside class="panel sticky" id="brawlerEditor"></aside>
+      </div>
+    </section>
+
+    <section id="playstyles" class="view">
+      <div class="panel selected-zone">
+        <div class="eyebrow">SELECTED</div>
+        <div id="selectedPlaystyle" class="drop-zone">Runtime monitor</div>
+      </div>
+      <div class="toolbar playstyle-toolbar">
+        <input id="playstyleSearch" class="input" placeholder="Search by playstyle, brawler, or gamemode">
+        <button id="importPlaystyle" class="secondary">Import</button>
+        <input id="playstyleFile" type="file" accept=".pyla" hidden>
+      </div>
+      <div class="eyebrow muted">LIBRARY</div>
+      <div id="playstyleGrid" class="playstyle-grid"></div>
+    </section>
+
+    <section id="history" class="view">
+      <div class="panel">
+        <div class="panel-head">
+          <div><div class="eyebrow">MATCH HISTORY</div><h2 id="historyTotal">0 total matches</h2><p id="historySummary"></p></div>
+          <div class="segmented"><input id="historySearch" class="input" placeholder="Filter by brawler"><button class="active" data-sort="matches">Matches</button><button data-sort="rate">Win Rate</button><button data-sort="name">Name</button></div>
+        </div>
+        <div id="historyGrid" class="history-grid"></div>
+      </div>
+    </section>
+
+    <section id="logging" class="view">
+      <div id="loggingGrid" class="settings-grid"></div>
+    </section>
+
+    <section id="settings" class="view">
+      <div id="settingsGrid" class="settings-grid"></div>
+    </section>
+  </main>
+
+  <footer class="queuebar" id="queuebar">
+    <div id="queueResizeHandle" class="queue-resize-handle" title="Drag to resize queue" aria-label="Drag to resize queue"></div>
+    <div class="queue-content"><div class="eyebrow">QUEUE</div><small id="queueCount">0 brawlers ready</small><div id="queueItems" class="queue-items"></div></div>
+    <button id="clearQueue" class="secondary">Clear Queue</button>
+  </footer>
+
+  <div id="pushAllModal" class="modal-backdrop" hidden>
+    <div class="modal-card">
+      <button id="pushAllClose" class="modal-close" aria-label="Close">×</button>
+      <div class="eyebrow">PUSH ALL</div>
+      <h2>Choose trophy target</h2>
+      <p>This compatibility dashboard keeps queue editing local-only for now.</p>
+      <div class="target-presets">
+        <button data-push-target="250">250</button>
+        <button data-push-target="500">500</button>
+        <button data-push-target="750">750</button>
+        <button data-push-target="1000" class="hot-target">1000</button>
+      </div>
+      <label>CUSTOM TARGET</label>
+      <div class="custom-target-row">
+        <input id="pushAllTarget" class="input wide" value="1000" inputmode="numeric">
+        <button id="pushAllApply" class="primary">Build Queue</button>
+      </div>
+      <p id="pushAllStatus" class="tiny-status"></p>
+    </div>
+  </div>
+
+  <script src="/app.js?v=20260513_onnx_provider_visibility"></script>
 </body>
 </html>
 """
 
+
+STYLES_CSS = """:root {
+  color-scheme: dark;
+  --bg: #0a0515;
+  --panel: #1a0d2a;
+  --panel2: #251538;
+  --line: #403056;
+  --red: #d75cff;
+  --red2: #8d2bbf;
+  --hot: #ff4fb8;
+  --pink: #ff6b9d;
+  --purple: #9d4edd;
+  --text: #f7f7f8;
+  --muted: #b2a6c4;
+  --green: #71f5a2;
+  --queue-height: 132px;
+  --queue-max-height: min(38vh, 360px);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(157,78,221,0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(215,92,255,0.12) 0%, transparent 40%),
+    radial-gradient(circle at 40% 80%, rgba(255,107,157,0.10) 0%, transparent 45%),
+    radial-gradient(circle at 90% 90%, rgba(255,79,184,0.08) 0%, transparent 35%),
+    linear-gradient(135deg, #0a0515 0%, #1a0d2a 50%, #251538 100%);
+  color: var(--text);
+  font: 15px/1.45 Inter, Segoe UI, Arial, sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+body::before, body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+body::before {
+  background:
+    radial-gradient(circle at 25% 25%, rgba(215,92,255,0.03) 0%, transparent 30%),
+    radial-gradient(circle at 75% 75%, rgba(255,107,157,0.03) 0%, transparent 30%);
+  animation: float 20s ease-in-out infinite;
+}
+body::after {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(157,78,221,0.02) 0%, transparent 40%),
+    radial-gradient(circle at 10% 90%, rgba(255,79,184,0.02) 0%, transparent 35%);
+  animation: float-reverse 25s ease-in-out infinite;
+}
+@keyframes float { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(30px,-30px) scale(1.05); } 66% { transform: translate(-20px,20px) scale(.95); } }
+@keyframes float-reverse { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(-25px,25px) scale(1.03); } 66% { transform: translate(15px,-15px) scale(.97); } }
+button, input, select { font: inherit; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width: 224px; background: #0b0712; border-right: 1px solid #2d2140; display: flex; flex-direction: column; z-index: 10; }
+.brand { height: 82px; display: flex; align-items: center; gap: 12px; padding: 0 22px; border-bottom: 1px solid #2d2140; font-size: 25px; font-weight: 900; }
+.logo { width: 34px; height: 34px; display: grid; place-items: center; background: linear-gradient(135deg, #241236, #5d174d); border: 1px solid #7c3ca8; box-shadow: 0 0 24px rgba(215,92,255,.38); }
+nav { padding: 18px 12px; display: grid; gap: 7px; }
+.nav { height: 44px; color: var(--muted); background: rgba(26,18,62,0.3); border: 1px solid rgba(215,92,255,0.2); border-radius: 8px; display: flex; align-items: center; gap: 14px; padding: 0 16px; cursor: pointer; text-align: left; transition: all .3s cubic-bezier(.4,0,.2,1); position: relative; overflow: hidden; }
+.nav::before { content: ''; position: absolute; inset: 0 auto 0 -100%; width: 100%; background: linear-gradient(90deg, transparent, rgba(215,92,255,0.1), transparent); transition: left .4s; }
+.nav:hover::before { left: 100%; }
+.nav:hover { color: var(--text); background: rgba(26,18,62,.5); border-color: rgba(215,92,255,.4); transform: translateX(2px); }
+.nav.active { color: white; background: linear-gradient(135deg, rgba(215,92,255,.3), rgba(157,78,221,.2)); border-color: var(--red); box-shadow: inset 4px 0 0 rgba(215,92,255,.3), 0 0 20px rgba(215,92,255,.2); }
+.app { margin-left: 224px; padding: 24px 30px calc(var(--queue-height) + 34px); }
+.topbar { height: 76px; display: flex; justify-content: space-between; align-items: start; }
+.eyebrow { color: var(--red); font-size: 12px; font-weight: 900; letter-spacing: 3px; }
+h1 { margin: 8px 0 0; font-size: 34px; line-height: 1; }
+h2 { margin: 8px 0 0; font-size: 22px; }
+p { color: var(--muted); margin: 8px 0 0; }
+.top-actions { display: flex; gap: 10px; align-items: center; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; color: var(--muted); background: #100a19; font-weight: 800; }
+.view { display: none; opacity: 0; transform: translateY(20px); transition: all .3s cubic-bezier(.4,0,.2,1); }
+.view.active { display: block; opacity: 1; transform: translateY(0); }
+.grid { display: grid; gap: 24px; }
+.two { grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr); }
+.brawler-layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+.panel { background: rgba(26,13,42,.9); border: 1px solid rgba(215,92,255,.2); border-radius: 16px; padding: 24px; box-shadow: 0 22px 80px rgba(0,0,0,.3), 0 0 0 1px rgba(215,92,255,.1), inset 0 0 20px rgba(255,255,255,.05); transition: all .3s cubic-bezier(.4,0,.2,1); }
+.panel:hover { border-color: rgba(215,92,255,.3); box-shadow: 0 25px 90px rgba(0,0,0,.4), 0 0 0 1px rgba(215,92,255,.2), inset 0 0 25px rgba(255,255,255,.08); }
+.hero-run { min-height: 362px; border-color: rgba(215,92,255,.52); background: radial-gradient(circle at 50% 52%, rgba(215,92,255,.22), transparent 34%), rgba(18,13,29,.9); display: grid; place-items: center; }
+.runbox { text-align: center; }
+.start { width: 315px; height: 108px; border: 0; border-radius: 18px; color: white; background: linear-gradient(135deg, var(--hot) 0%, var(--red) 50%, var(--purple) 100%); font-size: 38px; font-weight: 950; cursor: pointer; box-shadow: 0 18px 45px rgba(215,92,255,.35), inset 0 0 20px rgba(255,255,255,.1); transition: all .3s cubic-bezier(.4,0,.2,1); position: relative; overflow: hidden; }
+.start::before { content: ''; position: absolute; inset: 0 auto 0 -100%; width: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.2), transparent); transition: left .5s; }
+.start:hover::before { left: 100%; }
+.start:hover { transform: translateY(-2px); box-shadow: 0 20px 50px rgba(215,92,255,.4), inset 0 0 25px rgba(255,255,255,.15); }
+.start:disabled, .disabled { background: #383a42 !important; color: #9da3af !important; box-shadow: none !important; cursor: not-allowed; }
+.panel-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.player-card { min-width: 210px; background: #1b1230; border: 1px solid #62338a; border-radius: 8px; padding: 12px; }
+.player-card small { display: block; color: var(--muted); }
+label { display: block; color: var(--muted); font-weight: 900; font-size: 12px; letter-spacing: 1px; margin: 12px 0 7px; }
+.input { height: 46px; background: #0d0714; color: white; border: 1px solid var(--line); border-radius: 6px; padding: 0 13px; font-weight: 800; }
+.wide { width: 100%; }
+.secondary { height: 46px; padding: 0 18px; margin-top: 12px; color: white; background: #211333; border: 1px solid #5e4078; border-radius: 6px; font-weight: 900; cursor: pointer; }
+.primary { min-height: 46px; border: 0; border-radius: 7px; background: linear-gradient(135deg, var(--hot), var(--red)); color: white; font-weight: 950; cursor: pointer; box-shadow: 0 14px 34px rgba(215,92,255,.25); }
+.brawler-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 12px; margin-top: 18px; max-height: 560px; overflow: auto; padding-right: 6px; }
+.brawler-card { border: 1px solid var(--line); background: #171022; color: white; border-radius: 8px; padding: 8px; text-align: center; cursor: pointer; font-weight: 900; }
+.brawler-card.active { border-color: var(--red); box-shadow: inset 0 0 0 1px var(--red); }
+.brawler-card img { width: 72px; height: 72px; object-fit: cover; border-radius: 7px; display: block; margin: 0 auto 6px; }
+.sticky { position: sticky; top: 24px; }
+.selected-zone { min-height: 260px; border-color: rgba(215,92,255,.55); display: grid; place-items: center; text-align: center; }
+.drop-zone { width: min(540px, 100%); min-height: 170px; border: 1px solid rgba(215,92,255,.42); border-radius: 12px; display: grid; place-items: center; padding: 18px; color: var(--muted); }
+.toolbar { margin: 24px 0; padding: 12px 18px; border: 1px solid var(--line); border-radius: 10px; background: rgba(16,17,22,.9); }
+.playstyle-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.playstyle-grid, .history-grid, .settings-grid, .multi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+.setting-group, .history-card, .playstyle-card, .empty-card, .mi-card { background: #171022; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.setting { display: grid; grid-template-columns: minmax(0,1fr) minmax(140px, 220px); gap: 16px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; background: #171022; }
+.queuebar { position: fixed; left: 224px; right: 0; bottom: 0; height: min(var(--queue-height), var(--queue-max-height)); min-height: 86px; max-height: var(--queue-max-height); background: rgba(26,13,42,.8); border-top: 1px solid rgba(215,92,255,.3); display: flex; justify-content: space-between; align-items: start; gap: 18px; padding: 18px 30px; z-index: 5; overflow: hidden; box-shadow: 0 -10px 40px rgba(0,0,0,.2); }
+.queue-resize-handle { position: absolute; left: 0; right: 0; top: -7px; height: 14px; cursor: ns-resize; z-index: 2; }
+.queue-resize-handle::before { content: ''; position: absolute; left: 30px; right: 30px; top: 4px; height: 10px; border-radius: 999px; background: linear-gradient(90deg, transparent, rgba(215,92,255,.85), transparent); box-shadow: 0 0 12px rgba(215,92,255,.45); opacity: .65; }
+.queue-content { min-width: 0; flex: 1; overflow: hidden; padding-right: 8px; }
+.queue-items { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; max-height: calc(var(--queue-height) - 72px); overflow: auto; padding: 0 6px 10px 0; }
+.queue-item { min-width: 190px; display: grid; grid-template-columns: 44px 1fr; gap: 9px; padding: 9px 28px 9px 9px; border: 1px solid rgba(215,92,255,.3); border-radius: 8px; background: rgba(26,13,42,.7); position: relative; }
+.queue-remove { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: 1px solid #6f4f8c; border-radius: 50%; background: #2a1740; color: white; cursor: pointer; font-weight: 900; line-height: 16px; }
+.queue-item img { width: 44px; height: 44px; border-radius: 6px; }
+.segmented { display: flex; gap: 10px; align-items: center; }
+.segmented .input { width: 220px; }
+.segmented button { border: 1px solid var(--line); padding: 0 16px; border-radius: 6px; height: 42px; color: var(--muted); background: #0d0714; font-weight: 900; cursor: pointer; }
+.segmented button.active { color: white; background: #2a1740; }
+.session-panel { margin-top: 24px; border: 1px solid #69458a; border-left: 3px solid var(--hot); border-radius: 10px; background: linear-gradient(180deg, #160d24, #0f0918); padding: 14px; box-shadow: 0 22px 70px rgba(0,0,0,.28); }
+.session-cards { display: grid; grid-template-columns: 1.05fr 1fr 1fr 1fr; gap: 8px; }
+.metric { min-height: 58px; border: 1px solid #4a3561; border-radius: 8px; padding: 10px 12px; background: #1a1028; }
+.metric small { display: block; color: #bdaed2; font-size: 11px; letter-spacing: 1px; }
+.metric b { display: block; margin-top: 5px; font-size: 16px; word-break: break-word; }
+.wide-metric { grid-row: span 2; }
+.progress { height: 5px; background: #2d1f3b; border-radius: 99px; margin: 10px 0 6px; overflow: hidden; }
+.progress span { display: block; height: 100%; background: linear-gradient(90deg, var(--hot), var(--red)); border-radius: inherit; }
+.tiny-status { min-height: 20px; font-size: 13px; color: var(--muted); }
+.player-actions { width: 100%; display: grid; grid-template-columns: auto minmax(16px,1fr) auto; align-items: center; gap: 12px; margin-top: 12px; }
+.player-actions .secondary { margin-top: 0; }
+.glow-action { margin-left: auto; border-color: rgba(215,92,255,.72); background: linear-gradient(135deg, #26143d, #34133a); box-shadow: 0 0 18px rgba(215,92,255,.18); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(5,3,10,.72); backdrop-filter: blur(8px); display: grid; place-items: center; padding: 24px; }
+.modal-backdrop[hidden] { display: none; }
+.modal-card { position: relative; width: min(560px,100%); border: 1px solid rgba(215,92,255,.55); border-radius: 18px; padding: 26px; background: radial-gradient(circle at 80% 0%, rgba(255,79,184,.16), transparent 34%), linear-gradient(180deg, #1a1028, #0d0714); box-shadow: 0 30px 90px rgba(0,0,0,.55), 0 0 45px rgba(215,92,255,.18); }
+.modal-close { position: absolute; right: 16px; top: 14px; width: 34px; height: 34px; border: 1px solid #6b4d87; border-radius: 9px; background: #211333; color: white; font-size: 24px; cursor: pointer; }
+.target-presets { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin: 22px 0 14px; }
+.target-presets button { height: 58px; border: 1px solid #6b4d87; border-radius: 12px; background: #171022; color: white; cursor: pointer; font-weight: 950; font-size: 18px; }
+.target-presets button:hover, .target-presets .hot-target { border-color: var(--red); background: linear-gradient(135deg, #30164a, #431743); }
+.custom-target-row { display: grid; grid-template-columns: 1fr 150px; gap: 12px; align-items: center; }
+.multi-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.multi-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.danger-soft { border-color: #8f3546 !important; color: #ffd1d8 !important; background: #32131d !important; }
+.multi-devices { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
+.multi-logs { min-height: 220px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 14px; border: 1px solid #2d3848; border-radius: 10px; background: #070a0f; color: #cbd5e1; font-size: 12px; }
+@media (max-width: 960px) { .sidebar { position: static; width: auto; } .app, .queuebar { margin-left: 0; left: 0; } .two, .brawler-layout, .settings-grid, .session-cards { grid-template-columns: 1fr; } .playstyle-toolbar, .multi-toolbar { align-items: stretch; flex-direction: column; } .queuebar { position: static; height: auto; max-height: none; } .app { padding-bottom: 30px; } }
+"""
+
+
+APP_JS = """let state = { runtime: {}, brawlers: [], queue: [], config: null };
+let selectedBrawler = null;
+let selectedPlaystyle = "Runtime monitor";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { cache: "no-store", headers: { "Content-Type": "application/json" }, ...options });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+function switchView(view) {
+  document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === view));
+  document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));
+  const titles = { dashboard: 'Dashboard', multi: 'Multi-Instance', brawlers: 'Brawlers', playstyles: 'Playstyles', history: 'History', logging: 'Logging', settings: 'Settings' };
+  $('pageTitle').textContent = titles[view] || view;
+}
+
+function runtimeValue(...keys) {
+  for (const key of keys) {
+    const value = state.runtime?.[key];
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return '';
+}
+
+function renderRuntimePanel() {
+  const runtime = state.runtime || {};
+  const status = runtime.performanceStatus || `${runtime.ips || '0.00'} IPS | ONNX: ${runtime.onnxBackend || 'unknown'}`;
+  const running = runtime.runtimeControl !== 'paused';
+  $('webappStatus').textContent = running ? 'Running' : 'Paused';
+  $('startBtn').querySelector('span').textContent = running ? 'STOP' : 'START';
+  $('startHint').textContent = running ? 'Bot is running. Stop pauses movement safely.' : 'Bot is paused. Start resumes movement.';
+  $('activePlaystyle').innerHTML = `<div class="eyebrow">ACTIVE STATUS</div><h2>${escapeHtml(status)}</h2><p>Live values are read from PylaAi-XXZ runtime.</p>`;
+  $('runtimePanel').innerHTML = `
+    <div class="session-cards">
+      <div class="metric wide-metric"><small>ACTIVE SESSION</small><b>${escapeHtml(status)}</b><div class="progress"><span style="width:${running ? 100 : 25}%"></span></div><strong>${escapeHtml(runtime.runtimeControl || 'running')}</strong></div>
+      <div class="metric"><small>CURRENT BRAWLER</small><b>${escapeHtml(runtime.brawler || runtime.currentBrawler || 'none')}</b></div>
+      <div class="metric"><small>STATE</small><b>${escapeHtml(runtime.state || 'unknown')}</b></div>
+      <div class="metric"><small>IPS</small><b>${escapeHtml(runtime.ips || '0.00')}</b></div>
+      <div class="metric"><small>ONNX BACKEND</small><b>${escapeHtml(runtime.onnxBackend || 'unknown')}</b></div>
+      <div class="metric"><small>FEED FPS</small><b>${escapeHtml(runtime.feed_fps || runtime.feedFps || '0.00')}</b></div>
+      <div class="metric"><small>EMULATOR</small><b>${escapeHtml(runtime.emulator || 'unknown')}</b></div>
+    </div>`;
+}
+
+function brawlerIcon(name) {
+  const clean = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return `/assets/brawler_icons/${clean}.png`;
+}
+
+function renderBrawlers() {
+  const query = ($('brawlerSearch')?.value || '').toLowerCase();
+  const brawlers = (state.brawlers || []).filter(name => String(name).toLowerCase().includes(query));
+  $('brawlerGrid').innerHTML = brawlers.map(name => `<button class="brawler-card ${selectedBrawler === name ? 'active' : ''}" data-brawler="${escapeHtml(name)}"><img src="${brawlerIcon(name)}" onerror="this.style.visibility='hidden'"><span>${escapeHtml(name)}</span></button>`).join('') || `<div class="empty-card"><b>No brawlers found</b><p>Local brawler list is empty.</p></div>`;
+  document.querySelectorAll('[data-brawler]').forEach(btn => btn.onclick = () => { selectedBrawler = btn.dataset.brawler; renderBrawlers(); renderBrawlerEditor(); });
+}
+
+function renderBrawlerEditor() {
+  const host = $('brawlerEditor');
+  if (!selectedBrawler) {
+    host.innerHTML = `<div class="eyebrow">SELECTED BRAWLER</div><h2>No brawler selected</h2><p>Choose a brawler from the list. Queue editing in this compatibility view is local to the browser.</p>`;
+    return;
+  }
+  host.innerHTML = `<div class="eyebrow">SELECTED BRAWLER</div><h2>${escapeHtml(selectedBrawler)}</h2><p>Add this brawler to the local visual queue.</p><label>TARGET TROPHIES</label><input id="targetAmount" class="input wide" value="1000"><button id="updateQueue" class="primary">Update Queue Entry</button>`;
+  $('updateQueue').onclick = () => {
+    state.queue = state.queue.filter(row => row.brawler !== selectedBrawler);
+    state.queue.push({ brawler: selectedBrawler, push_until: Number($('targetAmount').value) || 1000, type: 'trophies', trophies: 0 });
+    renderQueue();
+  };
+}
+
+function renderQueue() {
+  $('queueCount').textContent = `${state.queue.length} brawler${state.queue.length === 1 ? '' : 's'} ready`;
+  $('queueItems').innerHTML = state.queue.map(row => `<div class="queue-item"><button class="queue-remove" data-remove="${escapeHtml(row.brawler)}">x</button><img src="${brawlerIcon(row.brawler)}"><div><b>${escapeHtml(row.brawler)}</b><small>Current ${escapeHtml(row.type)}: ${escapeHtml(row[row.type] || 0)}</small><small>Target ${escapeHtml(row.type)}: ${escapeHtml(row.push_until)}</small></div></div>`).join('');
+  document.querySelectorAll('[data-remove]').forEach(btn => btn.onclick = () => { state.queue = state.queue.filter(row => row.brawler !== btn.dataset.remove); renderQueue(); });
+}
+
+function renderSettings() {
+  const configs = state.config?.configs || {};
+  $('settingsGrid').innerHTML = Object.entries(configs).map(([name, data]) => `<div class="setting-group"><div class="eyebrow">${escapeHtml(name.toUpperCase())}</div>${Object.entries(data || {}).map(([key, value]) => `<div class="setting"><div><b>${escapeHtml(key.replaceAll('_', ' '))}</b><p>Local config value</p></div><input class="input" value="${escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value)}" readonly></div>`).join('')}</div>`).join('');
+}
+
+function renderLogging() {
+  const configs = state.config?.configs || {};
+  const logging = { ...(configs['discord_config.toml'] || {}), ...(configs['telegram_config.toml'] || {}) };
+  $('loggingGrid').innerHTML = `<div class="setting-group"><div class="eyebrow">LOGGING</div>${Object.entries(logging).map(([key, value]) => `<div class="setting"><div><b>${escapeHtml(key.replaceAll('_', ' '))}</b><p>Notification setting</p></div><input class="input" value="${escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value)}" readonly></div>`).join('') || '<p>No logging config found.</p>'}</div>`;
+}
+
+function renderPlaystyles() {
+  $('selectedPlaystyle').textContent = selectedPlaystyle;
+  $('playstyleGrid').innerHTML = `<div class="playstyle-card active"><h2>Runtime monitor</h2><p>Built-in web runtime dashboard style.</p><div class="mode-tags"><span class="tag">all</span></div></div>`;
+}
+
+function renderHistory() {
+  $('historyTotal').textContent = 'Local runtime history';
+  $('historySummary').textContent = 'Match result posts are stored by the local API when received.';
+  $('historyGrid').innerHTML = `<div class="history-card"><h2>Waiting for match data</h2><p>The bot can post results to /api/brawlers.</p></div>`;
+}
+
+function renderMulti() {
+  $('multiDevices').innerHTML = `<div class="empty-devices">Multi-instance controls are visible for design compatibility.</div>`;
+  $('multiGrid').innerHTML = `<div class="empty-card"><b>No active bot instances</b><p>This local server currently controls the main bot runtime.</p></div>`;
+}
+
+async function refreshRuntime() {
+  try {
+    state.runtime = await api('/api/runtime');
+    renderRuntimePanel();
+  } catch (err) {
+    $('webappStatus').textContent = 'Offline';
+    $('runtimePanel').innerHTML = `<div class="empty-card"><b>Runtime unavailable</b><p>${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+async function loadConfig() {
+  state.config = await api('/api/config');
+  renderSettings();
+  renderLogging();
+}
+
+async function loadBrawlers() {
+  try {
+    const data = await api('/api/get_brawler_list', { method: 'POST', body: '{}' });
+    state.brawlers = data.brawlers || [];
+  } catch (_) {
+    state.brawlers = [];
+  }
+  renderBrawlers();
+  renderBrawlerEditor();
+}
+
+async function control(action) {
+  const data = await api('/api/control', { method: 'POST', body: JSON.stringify({ action }) });
+  await refreshRuntime();
+  return data;
+}
+
+async function startBot() {
+  const paused = state.runtime?.runtimeControl === 'paused';
+  $('startBtn').disabled = true;
+  try {
+    await control(paused ? 'resume' : 'pause');
+  } finally {
+    $('startBtn').disabled = false;
+  }
+}
+
+function bindUi() {
+  document.addEventListener('click', ev => {
+    const nav = ev.target.closest('[data-view]');
+    if (nav) switchView(nav.dataset.view);
+  });
+  $('startBtn').onclick = startBot;
+  $('brawlerSearch').oninput = renderBrawlers;
+  $('clearQueue').onclick = () => { state.queue = []; renderQueue(); };
+  $('pushAllBtn').onclick = () => { $('pushAllModal').hidden = false; $('pushAllStatus').textContent = 'Push all is visual-only in this local compatibility page.'; };
+  $('pushAllClose').onclick = () => { $('pushAllModal').hidden = true; };
+  $('pushAllApply').onclick = () => { $('pushAllStatus').textContent = 'Queue builder requires synced player data in the full Amethyst API.'; };
+  $('multiPauseAll').onclick = () => control('pause');
+  $('multiResumeAll').onclick = () => control('resume');
+  $('multiStopAll').onclick = () => control('pause');
+  $('multiScan').onclick = renderMulti;
+  $('multiStartNext').onclick = () => control('resume');
+}
+
+async function init() {
+  bindUi();
+  renderPlaystyles();
+  renderHistory();
+  renderMulti();
+  renderQueue();
+  await Promise.allSettled([refreshRuntime(), loadConfig(), loadBrawlers()]);
+  setInterval(refreshRuntime, 1000);
+}
+
+init().catch(err => alert(err.message));
+"""
 
 def _json_default(value: Any):
     return str(value)
@@ -357,6 +739,12 @@ class LocalWebAppServer:
                 path = parsed.path.rstrip("/") or "/"
                 if path == "/":
                     self._send_bytes(INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    return
+                if path == "/styles.css":
+                    self._send_bytes(STYLES_CSS.encode("utf-8"), "text/css; charset=utf-8")
+                    return
+                if path == "/app.js":
+                    self._send_bytes(APP_JS.encode("utf-8"), "application/javascript; charset=utf-8")
                     return
                 if path in ("/health", "/api/health"):
                     self._send_json({"ok": True, "version": current_pyla_version()})

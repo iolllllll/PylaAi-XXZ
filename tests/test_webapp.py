@@ -32,6 +32,19 @@ class WebAppTests(unittest.TestCase):
             )
             self.assertTrue(server.start())
             try:
+                with urlopen(f"{server.url}/", timeout=3) as response:
+                    html = response.read().decode("utf-8")
+                self.assertIn("Amethyst Webapp", html)
+                self.assertIn('/styles.css', html)
+
+                with urlopen(f"{server.url}/styles.css", timeout=3) as response:
+                    css = response.read().decode("utf-8")
+                self.assertIn("--hot: #ff4fb8", css)
+
+                with urlopen(f"{server.url}/app.js", timeout=3) as response:
+                    js = response.read().decode("utf-8")
+                self.assertIn("refreshRuntime", js)
+
                 with urlopen(f"{server.url}/api/runtime", timeout=3) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 self.assertEqual(payload["runtimeControl"], RUNNING)
