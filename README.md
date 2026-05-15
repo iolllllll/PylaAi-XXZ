@@ -157,10 +157,8 @@ Devs :
 # Run tests
 Run `python -m unittest discover` to check if your changes have made any regressions. 
 
-# Runtime IPS / smarter combat
+# Runtime IPS / smart wall detection
 PylaAi-XXZ keeps wall detections in memory and, by default, uses adaptive wall detection in Showdown. When no enemy is visible and the last wall map is still usable, the expensive wall ONNX model is refreshed less often; when an enemy appears, no walls are known, or wall-stuck recovery is active, it returns to the faster interval. This is controlled in `cfg/bot_config.toml` with `adaptive_wall_detection`, `wall_detection_slow_interval`, `wall_detection_enemy_interval`, and `wall_detection_no_wall_interval`.
-
-The bot also keeps a very short enemy memory. If vision drops an enemy for a fraction of a second, movement can continue using the last known position plus smoothed velocity prediction. This helps prevent twitchy roam/follow decisions during detection flicker without firing at invisible targets. Tune it with `enemy_memory_enabled`, `enemy_memory_seconds`, `enemy_memory_prediction_seconds`, and `enemy_memory_min_confidence`.
 
 # Performance profile
 If the bot drops to 1-3 IPS while Python CPU usage is low, first apply the safe capture profile and restart:

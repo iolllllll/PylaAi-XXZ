@@ -130,11 +130,6 @@ class Movement:
         self._enemy_velocity_smooth = {}
         self._enemy_velocity_confidence = {}
         self.enemy_velocity_confidence = 0.0
-        self.enemy_memory_enabled = str(bot_config.get("enemy_memory_enabled", "yes")).lower() in ("yes", "true", "1")
-        self.enemy_memory_seconds = max(0.0, float(bot_config.get("enemy_memory_seconds", 0.75)))
-        self.enemy_memory_prediction_seconds = max(0.0, float(bot_config.get("enemy_memory_prediction_seconds", 0.35)))
-        self.enemy_memory_min_confidence = max(0.0, min(1.0, float(bot_config.get("enemy_memory_min_confidence", 0.25))))
-        self.last_enemy_memory = None
         self._strafe_current_interval = 0.0
         self.roam_direction_hold_time = float(bot_config.get("roam_direction_hold_time", 1.5))
         self.roam_center_bias = float(bot_config.get("roam_center_bias", 0.25))
@@ -1332,62 +1327,6 @@ class Play(Movement):
         self._enemy_velocity_confidence[rounded_key] = new_confidence
         return smooth_vx, smooth_vy
 
-    def remember_enemy_position(self, enemy_coords, current_time, velocity=None, confidence=1.0):
-        if not self.enemy_memory_enabled or enemy_coords is None:
-            return
-        self.last_enemy_memory = {
-            "pos": (float(enemy_coords[0]), float(enemy_coords[1])),
-            "velocity": velocity or (0.0, 0.0),
-            "time": current_time,
-            "confidence": max(0.0, min(1.0, float(confidence))),
-        }
-
-    def recent_enemy_memory(self, current_time):
-        memory = self.last_enemy_memory
-        if not self.enemy_memory_enabled or not memory or self.enemy_memory_seconds <= 0:
-            return None
-        age = current_time - memory["time"]
-        if age < 0 or age > self.enemy_memory_seconds:
-            return None
-        decay = max(0.0, 1.0 - (age / self.enemy_memory_seconds))
-        confidence = memory.get("confidence", 0.0) * decay
-        if confidence < self.enemy_memory_min_confidence:
-            return None
-        predict_time = min(age, self.enemy_memory_prediction_seconds)
-        vx, vy = memory.get("velocity", (0.0, 0.0))
-        px, py = memory["pos"]
-        return {
-            "pos": (px + vx * predict_time * confidence, py + vy * predict_time * confidence),
-            "age": age,
-            "confidence": confidence,
-        }
-
-    def movement_from_enemy_memory(self, player_pos, walls, safe_range, attack_range, current_time, follow_teammates=False, teammate_data=None):
-        memory = self.recent_enemy_memory(current_time)
-        if not memory:
-            return None
-        enemy_pos = memory["pos"]
-        distance = self.get_distance(enemy_pos, player_pos)
-        if follow_teammates and teammate_data and distance > attack_range:
-            return None
-        toward_angle = self.angle_from_direction(enemy_pos[0] - player_pos[0], enemy_pos[1] - player_pos[1])
-        if distance <= safe_range:
-            desired = self.angle_opposite(toward_angle)
-        else:
-            desired = toward_angle
-        if safe_range < distance <= attack_range and self.strafe_enabled:
-            desired = self.blend_angles(
-                desired,
-                self.get_strafe_angle(toward_angle, current_time, distance, safe_range),
-                self.strafe_blend * memory["confidence"],
-            )
-        angle = self.find_best_angle(player_pos, desired, walls)
-        vlog(
-            f"enemy memory -> angle={angle:.1f}° "
-            f"(age={memory['age']:.2f}s, confidence={memory['confidence']:.2f}, dist={int(distance)}px)"
-        )
-        return angle
-
     def lead_shot_angle(self, player_pos, enemy_coords, enemy_velocity, projectile_speed_px_s=None, confidence=1.0):
         projectile_speed = projectile_speed_px_s or self.projectile_speed_px_s
         dx = enemy_coords[0] - player_pos[0]
@@ -1569,20 +1508,9 @@ class Play(Movement):
             self._fog_check_counter = 0
         fog_flee_angle = self._fog_direction_escape_cached or self._fog_threat_cached
 
-        # --- No enemy in sight: use short memory, follow teammate, or roam ---
+        # --- No enemy in sight: follow teammate or roam ---
         if not self.is_there_enemy(enemy_data):
-            memory_angle = self.movement_from_enemy_memory(
-                player_pos,
-                walls,
-                safe_range,
-                attack_range,
-                time.time(),
-                follow_teammates=follow_teammates,
-                teammate_data=teammate_data,
-            )
-            if memory_angle is not None:
-                angle = memory_angle
-            elif follow_teammates and (teammate_data or self.current_frame is not None):
+            if follow_teammates and (teammate_data or self.current_frame is not None):
                 if teammate_data:
                     vlog(f"no enemy → follow teammate ({len(teammate_data)} visible)")
                 else:
@@ -1614,12 +1542,6 @@ class Play(Movement):
                 else:
                     self.enemy_velocity = (0.0, 0.0)
                     self.enemy_velocity_confidence = 0.0
-                self.remember_enemy_position(
-                    enemy_coords,
-                    now_t,
-                    velocity=self.enemy_velocity,
-                    confidence=max(0.35, getattr(self, "enemy_velocity_confidence", 0.0)),
-                )
 
                 if enemy_distance > safe_range:
                     desired = toward_angle
