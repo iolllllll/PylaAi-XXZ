@@ -68,6 +68,7 @@ strafe_blend = 0.55
 combat_dodge_blend = 0.45
 combat_dodge_jitter_degrees = 18.0
 lead_shots = "yes"
+attack_through_walls_brawlers = [ "barley", "dynamike", "tick", "sprout", "grom", "willow", "larrylawrie", "berry", "juju",]
 enemy_memory_enabled = "yes"
 enemy_memory_seconds = 0.75
 enemy_memory_prediction_seconds = 0.35

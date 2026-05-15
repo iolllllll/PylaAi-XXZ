@@ -18,6 +18,31 @@ visual_debug = load_toml_as_dict("cfg/general_config.toml").get('visual_debug', 
 def vlog(*args):
     if visual_debug:
         print("[DBG]", *args)
+
+
+DEFAULT_ATTACK_THROUGH_WALL_BRAWLERS = (
+    "barley",
+    "dynamike",
+    "tick",
+    "sprout",
+    "grom",
+    "willow",
+    "larrylawrie",
+    "berry",
+    "juju",
+)
+
+
+def _normalize_brawler_key(name):
+    return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+
+
+def attack_through_wall_brawlers(config=None):
+    config = config if config is not None else load_toml_as_dict("cfg/bot_config.toml")
+    configured = config.get("attack_through_walls_brawlers", DEFAULT_ATTACK_THROUGH_WALL_BRAWLERS)
+    if isinstance(configured, str):
+        configured = [part.strip() for part in configured.split(",") if part.strip()]
+    return {_normalize_brawler_key(name) for name in configured}
 super_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['super']
 gadget_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['gadget']
 hypercharge_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['hypercharge']
@@ -122,6 +147,7 @@ class Movement:
         self.combat_dodge_jitter_degrees = float(bot_config.get("combat_dodge_jitter_degrees", 18.0))
         self.enemy_pressure_move_range_multiplier = float(bot_config.get("enemy_pressure_move_range_multiplier", 1.15))
         self.lead_shots_enabled = str(bot_config.get("lead_shots", "yes")).lower() in ("yes", "true", "1")
+        self.attack_through_wall_brawlers = attack_through_wall_brawlers(bot_config)
         self.aimed_attacks_enabled = str(bot_config.get("aimed_attacks", "no")).lower() in ("yes", "true", "1")
         self.projectile_speed_px_s = float(bot_config.get("projectile_speed_px_s", 900.0))
         self._enemy_track = {}
@@ -792,12 +818,14 @@ class Play(Movement):
         return ranges
 
     @staticmethod
-    def can_attack_through_walls(brawler, skill_type, brawlers_info=None):
-        if not brawlers_info: brawlers_info = load_brawlers_info()
+    def can_attack_through_walls(brawler, skill_type, brawlers_info=None, attack_brawlers=None):
+        if not brawlers_info:
+            brawlers_info = load_brawlers_info()
         if skill_type == "attack":
-            return brawlers_info[brawler]['ignore_walls_for_attacks']
+            allowed = attack_brawlers if attack_brawlers is not None else attack_through_wall_brawlers()
+            return _normalize_brawler_key(brawler) in allowed
         elif skill_type == "super":
-            return brawlers_info[brawler]['ignore_walls_for_supers']
+            return bool(brawlers_info.get(brawler, {}).get('ignore_walls_for_supers', False))
         raise ValueError("skill_type must be either 'attack' or 'super'")
 
     @staticmethod
@@ -1759,7 +1787,12 @@ class Play(Movement):
         return angle
 
     def is_enemy_hittable(self, player_pos, enemy_pos, walls, skill_type):
-        if self.can_attack_through_walls(self.current_brawler, skill_type, self.brawlers_info):
+        if self.can_attack_through_walls(
+                self.current_brawler,
+                skill_type,
+                self.brawlers_info,
+                attack_brawlers=getattr(self, "attack_through_wall_brawlers", None),
+        ):
             return True
         if self.walls_block_line_of_sight(player_pos, enemy_pos, walls):
             return False

@@ -162,6 +162,8 @@ PylaAi-XXZ keeps wall detections in memory and, by default, uses adaptive wall d
 
 The bot also keeps a very short enemy memory. If vision drops an enemy for a fraction of a second, movement can continue using the last known position plus smoothed velocity prediction. This helps prevent twitchy roam/follow decisions during detection flicker without firing at invisible targets. Tune it with `enemy_memory_enabled`, `enemy_memory_seconds`, `enemy_memory_prediction_seconds`, and `enemy_memory_min_confidence`.
 
+Normal brawlers no longer treat walls as shoot-through just because `brawlers_info.json` says an attack can ignore walls. Basic attacks only bypass line-of-sight checks for the configured thrower allowlist `attack_through_walls_brawlers`; supers still use their own brawler metadata.
+
 # Performance profile
 If the bot drops to 1-3 IPS while Python CPU usage is low, first apply the safe capture profile and restart:
 
