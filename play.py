@@ -1,4 +1,4 @@
-﻿import math
+import math
 import json
 import os
 import random
@@ -8,7 +8,7 @@ import time
 import cv2
 import numpy as np
 from state_finder import get_state
-from detect import Detect
+from detect import Detect, format_onnx_backend
 from utils import load_toml_as_dict, count_hsv_pixels, load_brawlers_info
 
 brawl_stars_width, brawl_stars_height = 1920, 1080
@@ -18,6 +18,31 @@ visual_debug = load_toml_as_dict("cfg/general_config.toml").get('visual_debug', 
 def vlog(*args):
     if visual_debug:
         print("[DBG]", *args)
+
+
+DEFAULT_ATTACK_THROUGH_WALL_BRAWLERS = (
+    "barley",
+    "dynamike",
+    "tick",
+    "sprout",
+    "grom",
+    "willow",
+    "larrylawrie",
+    "berry",
+    "juju",
+)
+
+
+def _normalize_brawler_key(name):
+    return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
+
+
+def attack_through_wall_brawlers(config=None):
+    config = config if config is not None else load_toml_as_dict("cfg/bot_config.toml")
+    configured = config.get("attack_through_walls_brawlers", DEFAULT_ATTACK_THROUGH_WALL_BRAWLERS)
+    if isinstance(configured, str):
+        configured = [part.strip() for part in configured.split(",") if part.strip()]
+    return {_normalize_brawler_key(name) for name in configured}
 super_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['super']
 gadget_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['gadget']
 hypercharge_crop_area = load_toml_as_dict("./cfg/lobby_config.toml")['pixel_counter_crop_area']['hypercharge']
@@ -45,6 +70,19 @@ class Movement:
         self.gadget_treshold = time_config["gadget"]
         self.hypercharge_treshold = time_config["hypercharge"]
         self.walls_treshold = time_config["wall_detection"]
+        self.adaptive_wall_detection = str(bot_config.get("adaptive_wall_detection", "yes")).lower() in ("yes", "true", "1")
+        self.wall_detection_slow_interval = max(
+            self.walls_treshold,
+            float(bot_config.get("wall_detection_slow_interval", self.walls_treshold * 1.75)),
+        )
+        self.wall_detection_no_wall_interval = max(
+            0.1,
+            float(bot_config.get("wall_detection_no_wall_interval", min(self.walls_treshold, 0.5))),
+        )
+        self.wall_detection_enemy_interval = max(
+            0.1,
+            float(bot_config.get("wall_detection_enemy_interval", self.walls_treshold)),
+        )
         self.keep_walls_in_memory = self.walls_treshold <= 1
         self.last_walls_data = []
         self.keys_hold = []
@@ -109,6 +147,7 @@ class Movement:
         self.combat_dodge_jitter_degrees = float(bot_config.get("combat_dodge_jitter_degrees", 18.0))
         self.enemy_pressure_move_range_multiplier = float(bot_config.get("enemy_pressure_move_range_multiplier", 1.15))
         self.lead_shots_enabled = str(bot_config.get("lead_shots", "yes")).lower() in ("yes", "true", "1")
+        self.attack_through_wall_brawlers = attack_through_wall_brawlers(bot_config)
         self.aimed_attacks_enabled = str(bot_config.get("aimed_attacks", "no")).lower() in ("yes", "true", "1")
         self.projectile_speed_px_s = float(bot_config.get("projectile_speed_px_s", 900.0))
         self._enemy_track = {}
@@ -117,6 +156,11 @@ class Movement:
         self._enemy_velocity_smooth = {}
         self._enemy_velocity_confidence = {}
         self.enemy_velocity_confidence = 0.0
+        self.enemy_memory_enabled = str(bot_config.get("enemy_memory_enabled", "yes")).lower() in ("yes", "true", "1")
+        self.enemy_memory_seconds = max(0.0, float(bot_config.get("enemy_memory_seconds", 0.75)))
+        self.enemy_memory_prediction_seconds = max(0.0, float(bot_config.get("enemy_memory_prediction_seconds", 0.35)))
+        self.enemy_memory_min_confidence = max(0.0, min(1.0, float(bot_config.get("enemy_memory_min_confidence", 0.25))))
+        self.last_enemy_memory = None
         self._strafe_current_interval = 0.0
         self.roam_direction_hold_time = float(bot_config.get("roam_direction_hold_time", 1.5))
         self.roam_center_bias = float(bot_config.get("roam_center_bias", 0.25))
@@ -576,6 +620,13 @@ class Play(Movement):
         self._playstyle_error_reported = False
         self.load_playstyle()
 
+    def get_onnx_backend_status(self):
+        for detector in (self.Detect_main_info, self.Detect_tile_detector):
+            backend = format_onnx_backend(detector.get_backend_provider())
+            if backend != "unknown":
+                return backend
+        return "unknown"
+
     def load_playstyle(self):
         if not self.playstyle_name:
             return
@@ -767,12 +818,14 @@ class Play(Movement):
         return ranges
 
     @staticmethod
-    def can_attack_through_walls(brawler, skill_type, brawlers_info=None):
-        if not brawlers_info: brawlers_info = load_brawlers_info()
+    def can_attack_through_walls(brawler, skill_type, brawlers_info=None, attack_brawlers=None):
+        if not brawlers_info:
+            brawlers_info = load_brawlers_info()
         if skill_type == "attack":
-            return brawlers_info[brawler]['ignore_walls_for_attacks']
+            allowed = attack_brawlers if attack_brawlers is not None else attack_through_wall_brawlers()
+            return _normalize_brawler_key(brawler) in allowed
         elif skill_type == "super":
-            return brawlers_info[brawler]['ignore_walls_for_supers']
+            return bool(brawlers_info.get(brawler, {}).get('ignore_walls_for_supers', False))
         raise ValueError("skill_type must be either 'attack' or 'super'")
 
     @staticmethod
@@ -1307,6 +1360,62 @@ class Play(Movement):
         self._enemy_velocity_confidence[rounded_key] = new_confidence
         return smooth_vx, smooth_vy
 
+    def remember_enemy_position(self, enemy_coords, current_time, velocity=None, confidence=1.0):
+        if not self.enemy_memory_enabled or enemy_coords is None:
+            return
+        self.last_enemy_memory = {
+            "pos": (float(enemy_coords[0]), float(enemy_coords[1])),
+            "velocity": velocity or (0.0, 0.0),
+            "time": current_time,
+            "confidence": max(0.0, min(1.0, float(confidence))),
+        }
+
+    def recent_enemy_memory(self, current_time):
+        memory = self.last_enemy_memory
+        if not self.enemy_memory_enabled or not memory or self.enemy_memory_seconds <= 0:
+            return None
+        age = current_time - memory["time"]
+        if age < 0 or age > self.enemy_memory_seconds:
+            return None
+        decay = max(0.0, 1.0 - (age / self.enemy_memory_seconds))
+        confidence = memory.get("confidence", 0.0) * decay
+        if confidence < self.enemy_memory_min_confidence:
+            return None
+        predict_time = min(age, self.enemy_memory_prediction_seconds)
+        vx, vy = memory.get("velocity", (0.0, 0.0))
+        px, py = memory["pos"]
+        return {
+            "pos": (px + vx * predict_time * confidence, py + vy * predict_time * confidence),
+            "age": age,
+            "confidence": confidence,
+        }
+
+    def movement_from_enemy_memory(self, player_pos, walls, safe_range, attack_range, current_time, follow_teammates=False, teammate_data=None):
+        memory = self.recent_enemy_memory(current_time)
+        if not memory:
+            return None
+        enemy_pos = memory["pos"]
+        distance = self.get_distance(enemy_pos, player_pos)
+        if follow_teammates and teammate_data and distance > attack_range:
+            return None
+        toward_angle = self.angle_from_direction(enemy_pos[0] - player_pos[0], enemy_pos[1] - player_pos[1])
+        if distance <= safe_range:
+            desired = self.angle_opposite(toward_angle)
+        else:
+            desired = toward_angle
+        if safe_range < distance <= attack_range and self.strafe_enabled:
+            desired = self.blend_angles(
+                desired,
+                self.get_strafe_angle(toward_angle, current_time, distance, safe_range),
+                self.strafe_blend * memory["confidence"],
+            )
+        angle = self.find_best_angle(player_pos, desired, walls)
+        vlog(
+            f"enemy memory -> angle={angle:.1f}° "
+            f"(age={memory['age']:.2f}s, confidence={memory['confidence']:.2f}, dist={int(distance)}px)"
+        )
+        return angle
+
     def lead_shot_angle(self, player_pos, enemy_coords, enemy_velocity, projectile_speed_px_s=None, confidence=1.0):
         projectile_speed = projectile_speed_px_s or self.projectile_speed_px_s
         dx = enemy_coords[0] - player_pos[0]
@@ -1488,9 +1597,20 @@ class Play(Movement):
             self._fog_check_counter = 0
         fog_flee_angle = self._fog_direction_escape_cached or self._fog_threat_cached
 
-        # --- No enemy in sight: follow teammate or roam ---
+        # --- No enemy in sight: use short memory, follow teammate, or roam ---
         if not self.is_there_enemy(enemy_data):
-            if follow_teammates and (teammate_data or self.current_frame is not None):
+            memory_angle = self.movement_from_enemy_memory(
+                player_pos,
+                walls,
+                safe_range,
+                attack_range,
+                time.time(),
+                follow_teammates=follow_teammates,
+                teammate_data=teammate_data,
+            )
+            if memory_angle is not None:
+                angle = memory_angle
+            elif follow_teammates and (teammate_data or self.current_frame is not None):
                 if teammate_data:
                     vlog(f"no enemy → follow teammate ({len(teammate_data)} visible)")
                 else:
@@ -1522,6 +1642,12 @@ class Play(Movement):
                 else:
                     self.enemy_velocity = (0.0, 0.0)
                     self.enemy_velocity_confidence = 0.0
+                self.remember_enemy_position(
+                    enemy_coords,
+                    now_t,
+                    velocity=self.enemy_velocity,
+                    confidence=max(0.35, getattr(self, "enemy_velocity_confidence", 0.0)),
+                )
 
                 if enemy_distance > safe_range:
                     desired = toward_angle
@@ -1661,7 +1787,12 @@ class Play(Movement):
         return angle
 
     def is_enemy_hittable(self, player_pos, enemy_pos, walls, skill_type):
-        if self.can_attack_through_walls(self.current_brawler, skill_type, self.brawlers_info):
+        if self.can_attack_through_walls(
+                self.current_brawler,
+                skill_type,
+                self.brawlers_info,
+                attack_brawlers=getattr(self, "attack_through_wall_brawlers", None),
+        ):
             return True
         if self.walls_block_line_of_sight(player_pos, enemy_pos, walls):
             return False
@@ -2129,6 +2260,26 @@ class Play(Movement):
         tile_data = self.Detect_tile_detector.detect_objects(frame, conf_tresh=self.wall_detection_confidence)
         return tile_data
 
+    def wall_detection_interval(self, data):
+        if not self.adaptive_wall_detection:
+            return self.walls_treshold
+        if not data.get("player"):
+            return self.wall_detection_slow_interval
+        if data.get("enemy"):
+            return self.wall_detection_enemy_interval
+        if not self.last_walls_data:
+            return self.wall_detection_no_wall_interval
+        if self.wall_stuck_state.get("stationary_since") is not None:
+            return self.walls_treshold
+        return self.wall_detection_slow_interval
+
+    def should_refresh_wall_data(self, data, current_time):
+        if not self.should_detect_walls:
+            return False
+        if not data.get("player"):
+            return False
+        return current_time - self.time_since_walls_checked > self.wall_detection_interval(data)
+
     @staticmethod
     def normalize_box(box):
         x1, y1, x2, y2 = box[:4]
@@ -2434,7 +2585,7 @@ class Play(Movement):
         current_time = time.time()
         raw_data = self.get_main_data(frame)
         data = raw_data
-        if self.should_detect_walls and current_time - self.time_since_walls_checked > self.walls_treshold:
+        if self.should_refresh_wall_data(data, current_time):
 
             tile_data = self.get_tile_data(frame)
 

@@ -164,6 +164,10 @@ def _image_to_png_bytes(screenshot: Any) -> bytes | None:
     return buffer.getvalue()
 
 
+def _image_bytes(screenshot: Any) -> bytes | None:
+    return _image_to_png_bytes(screenshot)
+
+
 async def async_send_message(chat_id: int | str, text: str, token: str | None = None) -> bool:
     settings = load_telegram_settings()
     token = token or settings.get("bot_token", "")
